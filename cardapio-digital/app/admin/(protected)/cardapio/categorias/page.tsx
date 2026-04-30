@@ -5,10 +5,10 @@ import CategoriasClient from '@/components/admin/categorias-client'
 
 export default async function CategoriasPage() {
   const supabase = await createClient()
-  const { data: categories } = await supabase
-    .from('categories')
-    .select('*')
-    .order('sort_order')
+  const [{ data: categories }, { data: restaurant }] = await Promise.all([
+    supabase.from('categories').select('*').order('sort_order'),
+    supabase.from('restaurants').select('id').single(),
+  ])
 
-  return <CategoriasClient initialCategories={categories ?? []} />
+  return <CategoriasClient initialCategories={categories ?? []} restaurantId={restaurant?.id ?? ''} />
 }

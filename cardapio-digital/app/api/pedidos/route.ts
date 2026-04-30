@@ -1,9 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 const itemSchema = z.object({
-  product_id: z.string().uuid().optional().nullable(),
+  product_id: z.string().uuid(),
   product_name: z.string().min(1),
   quantity: z.number().int().min(1).max(100),
   unit_price: z.number().min(0),
@@ -30,8 +31,6 @@ const orderSchema = z.object({
   address: z.string().optional().nullable(),
   delivery_zone_id: z.string().uuid().optional().nullable(),
   delivery_fee: z.number().min(0).default(0),
-  subtotal: z.number().min(0),
-  total: z.number().min(0),
   notes: z.string().optional().nullable(),
   payment_method: z.enum(['dinheiro', 'debito', 'credito']),
   troco: z.number().optional().nullable(),
@@ -39,6 +38,16 @@ const orderSchema = z.object({
 })
 
 export async function POST(request: NextRequest) {
+  // Rate limiting por IP
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const rateCheck = checkRateLimit(ip)
+  if (!rateCheck.ok) {
+    return NextResponse.json(
+      { error: 'Muitas requisições. Tente novamente em instantes.' },
+      { status: 429, headers: { 'Retry-After': String(rateCheck.retryAfter) } }
+    )
+  }
+
   const supabase = await createClient()
 
   try {
@@ -54,10 +63,75 @@ export async function POST(request: NextRequest) {
     const { data: restaurant } = await supabase.from('restaurants').select('id').single()
     if (!restaurant) return NextResponse.json({ error: 'Restaurante não encontrado' }, { status: 404 })
 
+    // Recalcular preços no servidor
+    const productIds = data.items.map((i) => i.product_id)
+    const addonIds = data.items.flatMap((i) => i.addons?.map((a) => a.addon_id).filter(Boolean) ?? [])
+    const variationIds = data.items.flatMap((i) => i.variations?.map((v) => v.variation_id).filter(Boolean) ?? [])
+
+    const [{ data: products }, { data: addons }, { data: variations }] = await Promise.all([
+      supabase.from('products').select('id, base_price, is_available').in('id', productIds),
+      addonIds.length > 0
+        ? supabase.from('addons').select('id, price, is_available').in('id', addonIds as string[])
+        : Promise.resolve({ data: [] }),
+      variationIds.length > 0
+        ? supabase.from('variations').select('id, price_modifier, is_available').in('id', variationIds as string[])
+        : Promise.resolve({ data: [] }),
+    ])
+
+    const productMap = new Map((products ?? []).map((p) => [p.id, p]))
+    const addonMap = new Map((addons ?? []).map((a) => [a.id, a]))
+    const variationMap = new Map((variations ?? []).map((v) => [v.id, v]))
+
+    // Validar e recalcular cada item
+    let serverSubtotal = 0
+    const validatedItems = data.items.map((item) => {
+      const product = productMap.get(item.product_id)
+      if (!product) throw new Error(`Produto não encontrado: ${item.product_id}`)
+      if (!product.is_available) throw new Error(`Produto indisponível: ${item.product_name}`)
+
+      let unitPrice = Number(product.base_price)
+
+      for (const v of item.variations ?? []) {
+        if (v.variation_id) {
+          const dbVariation = variationMap.get(v.variation_id)
+          unitPrice += dbVariation ? Number(dbVariation.price_modifier) : v.price_modifier
+        }
+      }
+
+      for (const a of item.addons ?? []) {
+        if (a.addon_id) {
+          const dbAddon = addonMap.get(a.addon_id)
+          unitPrice += dbAddon ? Number(dbAddon.price) : a.price
+        }
+      }
+
+      const itemTotal = unitPrice * item.quantity
+      serverSubtotal += itemTotal
+
+      return { ...item, unit_price: unitPrice, total_price: itemTotal }
+    })
+
+    // Buscar taxa de entrega real do banco se for delivery
+    let deliveryFee = 0
+    if (data.type === 'delivery' && data.delivery_zone_id) {
+      const { data: zone } = await supabase
+        .from('delivery_zones')
+        .select('fee, is_active')
+        .eq('id', data.delivery_zone_id)
+        .single()
+      if (!zone || !zone.is_active) {
+        return NextResponse.json({ error: 'Zona de entrega inválida' }, { status: 400 })
+      }
+      deliveryFee = Number(zone.fee)
+    }
+
+    const serverTotal = serverSubtotal + deliveryFee
+
     const estimated_ready_at = new Date(
       Date.now() + (data.type === 'delivery' ? 45 : 20) * 60 * 1000
     ).toISOString()
 
+    // Tentar usar RPC atômica primeiro
     const { data: rpcResult, error: rpcError } = await supabase.rpc('create_order', {
       order_data: {
         restaurant_id: restaurant.id,
@@ -67,96 +141,96 @@ export async function POST(request: NextRequest) {
         table_number: data.table_number ?? '',
         address: data.address ?? '',
         delivery_zone_id: data.delivery_zone_id ?? '',
-        delivery_fee: data.delivery_fee,
-        subtotal: data.subtotal,
-        total: data.total,
+        delivery_fee: deliveryFee,
+        subtotal: serverSubtotal,
+        total: serverTotal,
         notes: data.notes ?? '',
         estimated_ready_at,
         payment_method: data.payment_method,
         troco: data.troco != null ? String(data.troco) : '',
-        items: data.items,
+        items: validatedItems,
       },
     })
 
-    if (rpcError) {
-      // fallback: insert sequencial se a RPC ainda não foi aplicada
-      const { data: order, error: orderError } = await supabase
+    if (!rpcError) {
+      const { data: order } = await supabase
         .from('orders')
+        .select('*, items:order_items(*)')
+        .eq('id', rpcResult.id)
+        .single()
+      return NextResponse.json({ order })
+    }
+
+    // Fallback: inserts sequenciais (enquanto migration não foi aplicada)
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .insert({
+        restaurant_id: restaurant.id,
+        customer_name: data.customer_name,
+        customer_phone: data.customer_phone,
+        type: data.type,
+        table_number: data.table_number || null,
+        address: data.address || null,
+        delivery_zone_id: data.delivery_zone_id || null,
+        delivery_fee: deliveryFee,
+        subtotal: serverSubtotal,
+        total: serverTotal,
+        notes: data.notes || null,
+        estimated_ready_at,
+        payment_method: data.payment_method,
+        troco: data.troco ?? null,
+      })
+      .select()
+      .single()
+
+    if (orderError) throw orderError
+
+    for (const item of validatedItems) {
+      const { data: orderItem, error: itemError } = await supabase
+        .from('order_items')
         .insert({
-          restaurant_id: restaurant.id,
-          customer_name: data.customer_name,
-          customer_phone: data.customer_phone,
-          type: data.type,
-          table_number: data.table_number || null,
-          address: data.address || null,
-          delivery_zone_id: data.delivery_zone_id || null,
-          delivery_fee: data.delivery_fee,
-          subtotal: data.subtotal,
-          total: data.total,
-          notes: data.notes || null,
-          estimated_ready_at,
-          payment_method: data.payment_method,
-          troco: data.troco ?? null,
+          order_id: order.id,
+          product_id: item.product_id,
+          product_name: item.product_name,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          total_price: item.total_price,
+          notes: item.notes || null,
         })
         .select()
         .single()
 
-      if (orderError) throw orderError
+      if (itemError) throw itemError
 
-      for (const item of data.items) {
-        const { data: orderItem, error: itemError } = await supabase
-          .from('order_items')
-          .insert({
-            order_id: order.id,
-            product_id: item.product_id,
-            product_name: item.product_name,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            total_price: item.total_price,
-            notes: item.notes || null,
-          })
-          .select()
-          .single()
-
-        if (itemError) throw itemError
-
-        if (item.addons && item.addons.length > 0) {
-          await supabase.from('order_item_addons').insert(
-            item.addons.map((a) => ({
-              order_item_id: orderItem.id,
-              addon_id: a.addon_id,
-              addon_name: a.addon_name,
-              price: a.price,
-            }))
-          )
-        }
-
-        if (item.variations && item.variations.length > 0) {
-          await supabase.from('order_item_variations').insert(
-            item.variations.map((v) => ({
-              order_item_id: orderItem.id,
-              variation_id: v.variation_id,
-              variation_name: v.variation_name,
-              group_name: v.group_name,
-              price_modifier: v.price_modifier,
-            }))
-          )
-        }
+      if (item.addons && item.addons.length > 0) {
+        await supabase.from('order_item_addons').insert(
+          item.addons.map((a) => ({
+            order_item_id: orderItem.id,
+            addon_id: a.addon_id,
+            addon_name: a.addon_name,
+            price: a.price,
+          }))
+        )
       }
 
-      return NextResponse.json({ order })
+      if (item.variations && item.variations.length > 0) {
+        await supabase.from('order_item_variations').insert(
+          item.variations.map((v) => ({
+            order_item_id: orderItem.id,
+            variation_id: v.variation_id,
+            variation_name: v.variation_name,
+            group_name: v.group_name,
+            price_modifier: v.price_modifier,
+          }))
+        )
+      }
     }
-
-    const { data: order } = await supabase
-      .from('orders')
-      .select('*, items:order_items(*)')
-      .eq('id', rpcResult.id)
-      .single()
 
     return NextResponse.json({ order })
   } catch (error) {
-    console.error('Erro ao criar pedido:', error)
-    return NextResponse.json({ error: 'Erro interno' }, { status: 500 })
+    const message = error instanceof Error ? error.message : 'Erro interno'
+    const isUserError = message.includes('indisponível') || message.includes('não encontrado')
+    return NextResponse.json({ error: message }, { status: isUserError ? 400 : 500 })
   }
 }
 
@@ -170,9 +244,7 @@ export async function GET(request: NextRequest) {
     .select('*, items:order_items(*)')
     .order('created_at', { ascending: false })
 
-  if (status) {
-    query = query.eq('status', status)
-  }
+  if (status) query = query.eq('status', status)
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

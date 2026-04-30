@@ -23,7 +23,7 @@ export default function ProductCard({ product }: Props) {
         {product.description && (
           <p className="text-xs text-gray-500 mt-1 line-clamp-2">{product.description}</p>
         )}
-        <p className="mt-2 font-bold text-sm" style={{ color: '#f97316' }}>
+        <p className="mt-2 font-bold text-sm text-orange-700">
           {formatCurrency(product.base_price)}
         </p>
       </div>

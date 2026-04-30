@@ -14,20 +14,16 @@ import Link from 'next/link'
 
 interface Props {
   initialCategories: Category[]
+  restaurantId: string
 }
 
-export default function CategoriasClient({ initialCategories }: Props) {
+export default function CategoriasClient({ initialCategories, restaurantId }: Props) {
   const [categories, setCategories] = useState<Category[]>(initialCategories)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Category | null>(null)
   const [name, setName] = useState('')
   const [loading, setLoading] = useState(false)
   const supabase = createClient()
-
-  async function getRestaurantId() {
-    const { data } = await supabase.from('restaurants').select('id').single()
-    return data?.id
-  }
 
   function openCreate() {
     setEditing(null)
@@ -50,7 +46,6 @@ export default function CategoriasClient({ initialCategories }: Props) {
       setCategories((prev) => prev.map((c) => c.id === editing.id ? { ...c, name } : c))
       toast.success('Categoria atualizada')
     } else {
-      const restaurantId = await getRestaurantId()
       const { data, error } = await supabase.from('categories').insert({ name, restaurant_id: restaurantId, sort_order: categories.length }).select().single()
       if (error) { toast.error('Erro ao criar'); setLoading(false); return }
       setCategories((prev) => [...prev, data as Category])

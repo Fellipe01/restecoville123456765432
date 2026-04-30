@@ -18,22 +18,18 @@ import Image from 'next/image'
 interface Props {
   initialProducts: Product[]
   categories: { id: string; name: string }[]
+  restaurantId: string
 }
 
 const emptyForm = { name: '', description: '', base_price: '', category_id: '', image_url: '' }
 
-export default function ProdutosClient({ initialProducts, categories }: Props) {
+export default function ProdutosClient({ initialProducts, categories, restaurantId }: Props) {
   const [products, setProducts] = useState<Product[]>(initialProducts)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState(emptyForm)
   const [loading, setLoading] = useState(false)
   const supabase = createClient()
-
-  async function getRestaurantId() {
-    const { data } = await supabase.from('restaurants').select('id').single()
-    return data?.id
-  }
 
   function openCreate() {
     setEditing(null)
@@ -64,7 +60,6 @@ export default function ProdutosClient({ initialProducts, categories }: Props) {
       setProducts((prev) => prev.map((p) => p.id === editing.id ? { ...p, ...payload } : p))
       toast.success('Produto atualizado')
     } else {
-      const restaurantId = await getRestaurantId()
       const { data, error } = await supabase.from('products').insert({ ...payload, restaurant_id: restaurantId, sort_order: products.length }).select('*, category:categories(name)').single()
       if (error) { toast.error('Erro ao criar'); setLoading(false); return }
       setProducts((prev) => [...prev, data as Product])
