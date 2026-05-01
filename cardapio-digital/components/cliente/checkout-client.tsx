@@ -13,7 +13,6 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
 import { ArrowLeft, Loader2, ChevronRight } from 'lucide-react'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
@@ -23,6 +22,7 @@ const schema = z.object({
   order_type: z.enum(['balcao', 'delivery']),
   table_number: z.string().optional(),
   address: z.string().optional(),
+  complement: z.string().optional(),
   delivery_zone_id: z.string().optional(),
   notes: z.string().optional(),
   payment_method: z.enum(['dinheiro', 'debito', 'credito']),
@@ -87,6 +87,10 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
       toast.error('Selecione o bairro de entrega')
       return
     }
+    if (orderType === 'delivery' && !watch('address')?.trim()) {
+      toast.error('Informe o endereço de entrega')
+      return
+    }
     if (orderType === 'delivery' && selectedZone && selectedZone.minimum_order > 0 && subtotal < selectedZone.minimum_order) {
       toast.error(`Pedido mínimo para ${selectedZone.name}: ${formatCurrency(selectedZone.minimum_order)}`)
       return
@@ -97,10 +101,15 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
   async function onSubmit(data: FormData) {
     if (items.length === 0) { toast.error('Carrinho vazio'); return }
 
+    // Junta endereço + complemento/referência em um único campo
+    const fullAddress = data.complement?.trim()
+      ? `${data.address?.trim()}, ${data.complement.trim()}`
+      : data.address?.trim()
+
     setLoading(true)
     try {
       setCustomer(data.customer_name, data.customer_phone)
-      if (data.order_type === 'delivery') setDelivery(data.delivery_zone_id!, deliveryFee, data.address ?? '')
+      if (data.order_type === 'delivery') setDelivery(data.delivery_zone_id!, deliveryFee, fullAddress ?? '')
       setOrderType(data.order_type)
       setTableNumber(data.table_number ?? '')
       setNotes(data.notes ?? '')
@@ -114,7 +123,7 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
           customer_phone: data.customer_phone,
           type: data.order_type,
           table_number: data.table_number,
-          address: data.address,
+          address: fullAddress,
           delivery_zone_id: data.delivery_zone_id,
           delivery_fee: deliveryFee,
           subtotal,
@@ -173,7 +182,7 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
         <p className="text-xs text-gray-400">Passo {step} de 3 — {STEP_LABELS[step - 1]}</p>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="px-4 py-5 space-y-5 pb-32">
+      <form onSubmit={handleSubmit(onSubmit)} className="px-4 py-5 space-y-5 pb-36">
 
         {/* STEP 1: Dados pessoais */}
         {step === 1 && (
@@ -231,27 +240,41 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
             {orderType === 'delivery' && (
               <div className="space-y-3">
                 <h2 className="font-semibold text-gray-800">Entrega</h2>
+
+                {/* Bairro — select nativo para evitar bug de label com Base UI */}
                 <div>
-                  <Label>Bairro</Label>
-                  <Select
-                    value={deliveryZoneId ?? ''}
-                    onValueChange={(v) => setValue('delivery_zone_id', v ?? undefined)}
+                  <Label>Bairro <span className="text-red-400">*</span></Label>
+                  <select
+                    {...register('delivery_zone_id')}
+                    className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500 cursor-pointer appearance-none"
                   >
-                    <SelectTrigger className="mt-1 w-full h-10 text-sm">
-                      <SelectValue placeholder="Selecione o bairro..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {deliveryZones.map((zone) => (
-                        <SelectItem key={zone.id} value={zone.id}>
-                          {zone.name} — {formatCurrency(zone.fee)} (~{zone.estimated_minutes} min)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    <option value="">Selecione o bairro...</option>
+                    {deliveryZones.map((zone) => (
+                      <option key={zone.id} value={zone.id}>
+                        {zone.name} — {formatCurrency(zone.fee)} (~{zone.estimated_minutes} min)
+                      </option>
+                    ))}
+                  </select>
                 </div>
+
+                {/* Endereço obrigatório */}
                 <div>
-                  <Label>Endereço completo</Label>
-                  <Input {...register('address')} placeholder="Rua, número, complemento..." className="mt-1" />
+                  <Label>Rua e número <span className="text-red-400">*</span></Label>
+                  <Input
+                    {...register('address')}
+                    placeholder="Ex: Rua das Flores, 123"
+                    className="mt-1"
+                  />
+                </div>
+
+                {/* Complemento / ponto de referência */}
+                <div>
+                  <Label>Complemento / Ponto de referência <span className="text-gray-400 font-normal">(opcional)</span></Label>
+                  <Input
+                    {...register('complement')}
+                    placeholder="Ex: Apto 4, próximo ao mercado vermelho..."
+                    className="mt-1"
+                  />
                 </div>
               </div>
             )}
@@ -304,6 +327,27 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
                 className="mt-1 text-sm"
               />
             </div>
+
+            {/* Mini resumo do pedido */}
+            <div className="bg-orange-50 rounded-xl p-4 space-y-2 border border-orange-100">
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Resumo</p>
+              {items.map((item) => (
+                <div key={item.id} className="flex justify-between text-sm text-gray-600">
+                  <span>{item.quantity}× {item.product_name}</span>
+                  <span>{formatCurrency(item.unit_price * item.quantity)}</span>
+                </div>
+              ))}
+              {deliveryFee > 0 && (
+                <div className="flex justify-between text-xs text-gray-400">
+                  <span>Taxa de entrega ({selectedZone?.name})</span>
+                  <span>{formatCurrency(deliveryFee)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-gray-900 pt-2 border-t border-orange-200">
+                <span>Total</span>
+                <span className="text-orange-600">{formatCurrency(total)}</span>
+              </div>
+            </div>
           </div>
         )}
 
@@ -326,10 +370,20 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
                 <span className="font-medium text-gray-800">{orderType === 'delivery' ? '🛵 Delivery' : '🏪 Balcão'}</span>
               </div>
               {orderType === 'delivery' && selectedZone && (
-                <div className="flex justify-between text-gray-500">
-                  <span>Bairro</span>
-                  <span className="font-medium text-gray-800">{selectedZone.name}</span>
-                </div>
+                <>
+                  <div className="flex justify-between text-gray-500">
+                    <span>Bairro</span>
+                    <span className="font-medium text-gray-800">{selectedZone.name}</span>
+                  </div>
+                  {watch('address') && (
+                    <div className="flex justify-between text-gray-500">
+                      <span>Endereço</span>
+                      <span className="font-medium text-gray-800 text-right max-w-[60%]">
+                        {watch('address')}{watch('complement') ? `, ${watch('complement')}` : ''}
+                      </span>
+                    </div>
+                  )}
+                </>
               )}
               <div className="flex justify-between text-gray-500">
                 <span>Pagamento</span>
@@ -345,7 +399,7 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
             <div className="bg-gray-50 rounded-xl p-4 space-y-2">
               {items.map((item) => (
                 <div key={item.id} className="flex justify-between text-sm text-gray-600">
-                  <span>{item.quantity}x {item.product_name}</span>
+                  <span>{item.quantity}× {item.product_name}</span>
                   <span>{formatCurrency(item.unit_price * item.quantity)}</span>
                 </div>
               ))}
