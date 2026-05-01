@@ -18,6 +18,14 @@ interface Props {
   whatsappNumber: string | null
 }
 
+const STATUS_MESSAGE: Record<string, { icon: string; text: string; bg: string; text_color: string }> = {
+  recebido:   { icon: '📋', text: 'Recebemos seu pedido e já vamos começar!',         bg: 'bg-blue-50',   text_color: 'text-blue-700'   },
+  preparando: { icon: '👨‍🍳', text: 'Estamos preparando seu pedido com carinho.',        bg: 'bg-amber-50',  text_color: 'text-amber-700'  },
+  pronto:     { icon: '✅', text: 'Pedido pronto! Aguardando o entregador.',           bg: 'bg-green-50',  text_color: 'text-green-700'  },
+  saindo:     { icon: '🛵', text: 'O entregador acabou de sair com seu pedido!',       bg: 'bg-purple-50', text_color: 'text-purple-700' },
+  entregue:   { icon: '🎉', text: 'Pedido entregue. Bom apetite!',                    bg: 'bg-gray-50',   text_color: 'text-gray-600'   },
+}
+
 function buildWhatsAppLink(whatsappNumber: string, orderNumber: number) {
   const digits = whatsappNumber.replace(/\D/g, '')
   const number = digits.startsWith('55') ? digits : `55${digits}`
@@ -179,6 +187,17 @@ export default function AcompanharClient({ restaurantId, whatsappNumber }: Props
                   {getOrderStatusLabel(order.status)}
                 </Badge>
               </div>
+
+              {/* Mensagem de status */}
+              {STATUS_MESSAGE[order.status] && (() => {
+                const msg = STATUS_MESSAGE[order.status]
+                return (
+                  <div className={`flex items-center gap-2 rounded-lg px-3 py-2 ${msg.bg}`}>
+                    <span className="text-lg">{msg.icon}</span>
+                    <p className={`text-sm font-medium ${msg.text_color}`}>{msg.text}</p>
+                  </div>
+                )
+              })()}
 
               {/* Tipo */}
               <p className="text-xs text-gray-400">
