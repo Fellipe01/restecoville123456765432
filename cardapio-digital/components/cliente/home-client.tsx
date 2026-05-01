@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import ProductCard from './product-card'
 import RestaurantHeader from './restaurant-header'
-import { Search } from 'lucide-react'
+import { Search, Package } from 'lucide-react'
+import Link from 'next/link'
 
 interface Props {
   restaurant: Restaurant | null
@@ -45,6 +46,17 @@ export default function HomeClient({ restaurant, categories, products }: Props) 
   return (
     <div className="max-w-2xl mx-auto pb-24">
       <RestaurantHeader restaurant={restaurant} />
+
+      <Link
+        href="/acompanhar"
+        className="flex items-center justify-between px-4 py-3 bg-orange-50 hover:bg-orange-100 transition-colors"
+      >
+        <span className="flex items-center gap-2 text-sm text-orange-700 font-medium">
+          <Package className="h-4 w-4" />
+          Acompanhar meu pedido
+        </span>
+        <span className="text-xs text-orange-400">›</span>
+      </Link>
 
       <div className="sticky top-0 z-10 bg-gray-50 px-4 pt-3 pb-2 space-y-3 shadow-sm">
         <div className="relative">
