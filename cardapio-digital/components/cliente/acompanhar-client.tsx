@@ -131,7 +131,9 @@ export default function AcompanharClient({ restaurantId, whatsappNumber }: Props
             <ArrowLeft className="h-5 w-5 text-gray-400" />
           </button>
           <div>
-            <h1 className="font-bold text-gray-900">Meus pedidos</h1>
+            <h1 className="font-bold text-gray-900">
+              {orders[0]?.customer_name ? `Olá, ${orders[0].customer_name.split(' ')[0]}!` : 'Meus pedidos'}
+            </h1>
             <p className="text-xs text-gray-400">{phone} · atualiza a cada 30s</p>
           </div>
         </div>
