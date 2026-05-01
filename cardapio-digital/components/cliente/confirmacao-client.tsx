@@ -70,7 +70,7 @@ export default function ConfirmacaoClient({ order, whatsapp }: Props) {
           </a>
         )}
         <Link
-          href={`/pedido/${order.id}`}
+          href="/acompanhar"
           className={cn(buttonVariants({ variant: 'outline' }), 'w-full justify-center')}
         >
           Acompanhar pedido
