@@ -34,8 +34,11 @@ export default function AcompanharClient({ restaurantId, whatsappNumber }: Props
   const supabase = createClient()
 
   useEffect(() => {
-    if (phone) fetchOrders(phone)
-  }, [])
+    if (!phone) return
+    fetchOrders(phone)
+    const interval = setInterval(() => fetchOrders(phone), 30_000)
+    return () => clearInterval(interval)
+  }, [phone])
 
   async function fetchOrders(p: string) {
     setLoading(true)
@@ -129,7 +132,7 @@ export default function AcompanharClient({ restaurantId, whatsappNumber }: Props
           </button>
           <div>
             <h1 className="font-bold text-gray-900">Meus pedidos</h1>
-            <p className="text-xs text-gray-400">{phone}</p>
+            <p className="text-xs text-gray-400">{phone} · atualiza a cada 30s</p>
           </div>
         </div>
         <div className="flex items-center gap-3">

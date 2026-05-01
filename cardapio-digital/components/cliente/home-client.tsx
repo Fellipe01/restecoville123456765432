@@ -13,9 +13,10 @@ interface Props {
   restaurant: Restaurant | null
   categories: Category[]
   products: Product[]
+  activeOrdersCount: number
 }
 
-export default function HomeClient({ restaurant, categories, products }: Props) {
+export default function HomeClient({ restaurant, categories, products, activeOrdersCount }: Props) {
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
 
@@ -45,7 +46,7 @@ export default function HomeClient({ restaurant, categories, products }: Props) 
 
   return (
     <div className="max-w-2xl mx-auto pb-24">
-      <RestaurantHeader restaurant={restaurant} />
+      <RestaurantHeader restaurant={restaurant} activeOrdersCount={activeOrdersCount} />
 
       <Link
         href="/acompanhar"
