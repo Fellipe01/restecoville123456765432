@@ -53,15 +53,15 @@ export default function CarrinhoPage() {
               <p className="text-sm font-bold text-orange-500 mt-1">{formatCurrency(item.unit_price * item.quantity)}</p>
             </div>
             <div className="flex flex-col items-end gap-2 shrink-0">
-              <button onClick={() => removeItem(item.id)} className="text-red-400 hover:text-red-600">
+              <button onClick={() => removeItem(item.id)} aria-label={`Remover ${item.product_name}`} className="text-red-400 hover:text-red-600">
                 <Trash2 className="h-4 w-4" />
               </button>
               <div className="flex items-center gap-2 border rounded-lg px-2 py-1">
-                <button onClick={() => updateQuantity(item.id, item.quantity - 1)}>
+                <button onClick={() => updateQuantity(item.id, item.quantity - 1)} aria-label="Diminuir quantidade">
                   <Minus className="h-3 w-3" />
                 </button>
                 <span className="text-sm font-bold w-4 text-center">{item.quantity}</span>
-                <button onClick={() => updateQuantity(item.id, item.quantity + 1)}>
+                <button onClick={() => updateQuantity(item.id, item.quantity + 1)} aria-label="Aumentar quantidade">
                   <Plus className="h-3 w-3" />
                 </button>
               </div>

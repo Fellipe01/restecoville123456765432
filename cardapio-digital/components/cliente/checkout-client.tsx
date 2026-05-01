@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
 import { ArrowLeft, Loader2, ChevronRight } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
@@ -84,6 +85,10 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
     const valid = await trigger(fields)
     if (orderType === 'delivery' && !deliveryZoneId) {
       toast.error('Selecione o bairro de entrega')
+      return
+    }
+    if (orderType === 'delivery' && selectedZone && selectedZone.minimum_order > 0 && subtotal < selectedZone.minimum_order) {
+      toast.error(`Pedido mínimo para ${selectedZone.name}: ${formatCurrency(selectedZone.minimum_order)}`)
       return
     }
     if (valid) setStep(3)
@@ -228,17 +233,21 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
                 <h2 className="font-semibold text-gray-800">Entrega</h2>
                 <div>
                   <Label>Bairro</Label>
-                  <select
-                    {...register('delivery_zone_id')}
-                    className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                  <Select
+                    value={deliveryZoneId ?? ''}
+                    onValueChange={(v) => setValue('delivery_zone_id', v ?? undefined)}
                   >
-                    <option value="">Selecione o bairro...</option>
-                    {deliveryZones.map((zone) => (
-                      <option key={zone.id} value={zone.id}>
-                        {zone.name} — {formatCurrency(zone.fee)} (~{zone.estimated_minutes} min)
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="mt-1 w-full h-10 text-sm">
+                      <SelectValue placeholder="Selecione o bairro..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {deliveryZones.map((zone) => (
+                        <SelectItem key={zone.id} value={zone.id}>
+                          {zone.name} — {formatCurrency(zone.fee)} (~{zone.estimated_minutes} min)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label>Endereço completo</Label>

@@ -71,21 +71,21 @@ export default function PedidoPage() {
       </div>
 
       {order.status !== 'cancelado' && (
-        <div className="flex items-center justify-between mb-8 px-4">
+        <div className="flex items-center justify-between mb-8 px-2">
           {STEPS.map((step, idx) => (
             <div key={step} className="flex items-center">
-              <div className="flex flex-col items-center">
+              <div className="flex flex-col items-center w-14">
                 {idx <= currentStep ? (
-                  <CheckCircle2 className={`h-7 w-7 ${idx <= currentStep ? 'text-orange-500' : 'text-gray-300'}`} />
+                  <CheckCircle2 className={`h-6 w-6 ${idx <= currentStep ? 'text-orange-500' : 'text-gray-300'}`} />
                 ) : (
-                  <Circle className="h-7 w-7 text-gray-300" />
+                  <Circle className="h-6 w-6 text-gray-300" />
                 )}
-                <span className={`text-xs mt-1 text-center ${idx <= currentStep ? 'text-orange-600 font-medium' : 'text-gray-400'}`}>
+                <span className={`text-[10px] mt-1 text-center leading-tight ${idx <= currentStep ? 'text-orange-600 font-medium' : 'text-gray-400'}`}>
                   {getOrderStatusLabel(step)}
                 </span>
               </div>
               {idx < STEPS.length - 1 && (
-                <div className={`h-0.5 w-8 mx-1 ${idx < currentStep ? 'bg-orange-500' : 'bg-gray-200'}`} />
+                <div className={`h-0.5 w-4 shrink-0 ${idx < currentStep ? 'bg-orange-500' : 'bg-gray-200'}`} />
               )}
             </div>
           ))}

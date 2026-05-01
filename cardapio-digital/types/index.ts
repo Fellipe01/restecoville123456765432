@@ -95,6 +95,7 @@ export interface DeliveryZone {
   name: string
   fee: number
   estimated_minutes: number
+  minimum_order: number
   is_active: boolean
 }
 

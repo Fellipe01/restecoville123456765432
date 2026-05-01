@@ -17,7 +17,7 @@ interface Props {
   restaurantId: string
 }
 
-const emptyForm = { name: '', fee: '', estimated_minutes: '45' }
+const emptyForm = { name: '', fee: '', estimated_minutes: '45', minimum_order: '0' }
 
 export default function EntregaConfigClient({ initialZones, restaurantId }: Props) {
   const [zones, setZones] = useState<DeliveryZone[]>(initialZones)
@@ -42,14 +42,14 @@ export default function EntregaConfigClient({ initialZones, restaurantId }: Prop
 
   function openEdit(z: DeliveryZone) {
     setEditing(z)
-    setForm({ name: z.name, fee: String(z.fee), estimated_minutes: String(z.estimated_minutes) })
+    setForm({ name: z.name, fee: String(z.fee), estimated_minutes: String(z.estimated_minutes), minimum_order: String(z.minimum_order ?? 0) })
     setOpen(true)
   }
 
   async function handleSave() {
     if (!form.name.trim()) return
     setLoading(true)
-    const payload = { name: form.name, fee: parseFloat(form.fee) || 0, estimated_minutes: parseInt(form.estimated_minutes) || 45 }
+    const payload = { name: form.name, fee: parseFloat(form.fee) || 0, estimated_minutes: parseInt(form.estimated_minutes) || 45, minimum_order: parseFloat(form.minimum_order) || 0 }
 
     if (editing) {
       const { error } = await supabase.from('delivery_zones').update(payload).eq('id', editing.id)
@@ -101,7 +101,10 @@ export default function EntregaConfigClient({ initialZones, restaurantId }: Prop
           <div key={z.id} className="flex items-center justify-between px-4 py-3 border-b last:border-0">
             <div>
               <p className="font-medium text-gray-900">{z.name}</p>
-              <p className="text-sm text-gray-500">{formatCurrency(z.fee)} · ~{z.estimated_minutes} min</p>
+              <p className="text-sm text-gray-500">
+              {formatCurrency(z.fee)} · ~{z.estimated_minutes} min
+              {(z.minimum_order ?? 0) > 0 && ` · mín ${formatCurrency(z.minimum_order)}`}
+            </p>
             </div>
             <div className="flex items-center gap-2">
               <button onClick={() => toggleActive(z)} className={`text-xs underline ${z.is_active ? 'text-red-400' : 'text-green-500'}`}>
@@ -122,6 +125,7 @@ export default function EntregaConfigClient({ initialZones, restaurantId }: Prop
             <div><Label>Nome do bairro</Label><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="mt-1" /></div>
             <div><Label>Taxa de entrega (R$)</Label><Input type="number" step="0.50" value={form.fee} onChange={(e) => setForm((f) => ({ ...f, fee: e.target.value }))} className="mt-1" /></div>
             <div><Label>Tempo estimado (min)</Label><Input type="number" value={form.estimated_minutes} onChange={(e) => setForm((f) => ({ ...f, estimated_minutes: e.target.value }))} className="mt-1" /></div>
+            <div><Label>Pedido mínimo (R$)</Label><Input type="number" step="0.50" min="0" value={form.minimum_order} onChange={(e) => setForm((f) => ({ ...f, minimum_order: e.target.value }))} className="mt-1" /><p className="text-xs text-gray-400 mt-1">0 = sem pedido mínimo</p></div>
             <Button onClick={handleSave} disabled={loading} className="w-full bg-orange-500 hover:bg-orange-600">Salvar</Button>
           </div>
         </DialogContent>
