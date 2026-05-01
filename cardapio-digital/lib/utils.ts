@@ -35,6 +35,7 @@ export function getOrderStatusLabel(status: string): string {
     recebido: 'Recebido',
     preparando: 'Preparando',
     pronto: 'Pronto',
+    saindo: 'Saindo',
     entregue: 'Entregue',
     cancelado: 'Cancelado',
   }
@@ -55,7 +56,8 @@ export function getOrderStatusColor(status: string): string {
     recebido: 'bg-blue-100 text-blue-800',
     preparando: 'bg-yellow-100 text-yellow-800',
     pronto: 'bg-green-100 text-green-800',
-    entregue: 'bg-gray-100 text-gray-800',
+    saindo: 'bg-purple-100 text-purple-800',
+    entregue: 'bg-gray-100 text-gray-600',
     cancelado: 'bg-red-100 text-red-800',
   }
   return colors[status] ?? 'bg-gray-100 text-gray-800'

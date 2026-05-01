@@ -6,10 +6,14 @@ import PedidosClient from '@/components/admin/pedidos-client'
 export default async function PedidosPage() {
   const supabase = await createClient()
 
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
   const { data: orders } = await supabase
     .from('orders')
     .select('*, items:order_items(*, addons:order_item_addons(*), variations:order_item_variations(*))')
-    .in('status', ['recebido', 'preparando', 'pronto'])
+    .in('status', ['recebido', 'preparando', 'pronto', 'saindo', 'entregue'])
+    .gte('created_at', today.toISOString())
     .order('created_at', { ascending: true })
 
   return <PedidosClient initialOrders={orders ?? []} />

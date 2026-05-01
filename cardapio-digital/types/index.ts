@@ -99,7 +99,7 @@ export interface DeliveryZone {
   is_active: boolean
 }
 
-export type OrderStatus = 'recebido' | 'preparando' | 'pronto' | 'entregue' | 'cancelado'
+export type OrderStatus = 'recebido' | 'preparando' | 'pronto' | 'saindo' | 'entregue' | 'cancelado'
 export type OrderType = 'balcao' | 'delivery'
 export type PaymentMethod = 'dinheiro' | 'debito' | 'credito'
 
