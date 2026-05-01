@@ -66,10 +66,18 @@ export default function PedidosClient({ initialOrders }: Props) {
   useEffect(() => {
     const channel = supabase
       .channel('pedidos-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, (payload) => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
         const novo = payload.new as Order
-        setOrders((prev) => prev.find((o) => o.id === novo.id) ? prev : [novo, ...prev])
-        toast.success(`Novo pedido #${novo.order_number}!`)
+        // Busca pedido completo com itens (payload do Realtime não inclui joins)
+        const { data } = await supabase
+          .from('orders')
+          .select('*, items:order_items(*, addons:order_item_addons(*), variations:order_item_variations(*))')
+          .eq('id', novo.id)
+          .single()
+        if (data) {
+          setOrders((prev) => prev.find((o) => o.id === data.id) ? prev : [data as Order, ...prev])
+        }
+        toast.success(`🛎 Novo pedido #${novo.order_number}!`, { duration: 6000 })
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
         const updated = payload.new as Order

@@ -91,7 +91,7 @@ export default function AcompanharClient({ restaurantId, whatsappNumber }: Props
   if (!phone) {
     return (
       <div className="max-w-md mx-auto px-4 py-12">
-        <button onClick={() => router.back()} className="text-gray-400 hover:text-gray-600 mb-8" aria-label="Voltar">
+        <button onClick={() => router.push('/')} className="text-gray-400 hover:text-gray-600 mb-8" aria-label="Voltar">
           <ArrowLeft className="h-5 w-5" />
         </button>
 
@@ -135,7 +135,7 @@ export default function AcompanharClient({ restaurantId, whatsappNumber }: Props
     <div className="max-w-2xl mx-auto px-4 py-6">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <button onClick={() => router.back()} aria-label="Voltar">
+          <button onClick={() => router.push('/')} aria-label="Voltar">
             <ArrowLeft className="h-5 w-5 text-gray-400" />
           </button>
           <div>
