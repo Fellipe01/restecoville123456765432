@@ -48,7 +48,7 @@ export default function AcompanharClient({ restaurantId, whatsappNumber }: Props
       .from('orders')
       .select('*, items:order_items(*)')
       .or(`customer_phone.eq.${p},customer_phone.eq.${digits}`)
-      .in('status', ['recebido', 'preparando', 'pronto'])
+      .in('status', ['recebido', 'preparando', 'pronto', 'saindo'])
       .order('created_at', { ascending: false })
     setOrders(data ?? [])
     setLoading(false)
