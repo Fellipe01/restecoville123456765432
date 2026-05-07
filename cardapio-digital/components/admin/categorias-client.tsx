@@ -60,6 +60,11 @@ export default function CategoriasClient({ initialCategories, restaurantId }: Pr
     if (!error) setCategories((prev) => prev.map((c) => c.id === cat.id ? { ...c, is_active: !c.is_active } : c))
   }
 
+  async function toggleShowInCart(cat: Category) {
+    const { error } = await supabase.from('categories').update({ show_in_cart: !cat.show_in_cart }).eq('id', cat.id)
+    if (!error) setCategories((prev) => prev.map((c) => c.id === cat.id ? { ...c, show_in_cart: !c.show_in_cart } : c))
+  }
+
   async function handleDelete(cat: Category) {
     if (!confirm(`Deletar categoria "${cat.name}"? Todos os produtos serão removidos.`)) return
     const { error } = await supabase.from('categories').delete().eq('id', cat.id)
@@ -91,8 +96,20 @@ export default function CategoriasClient({ initialCategories, restaurantId }: Pr
               <Badge variant={cat.is_active ? 'default' : 'secondary'} className="text-xs">
                 {cat.is_active ? 'Ativa' : 'Inativa'}
               </Badge>
+              {cat.show_in_cart && (
+                <Badge variant="outline" className="text-xs border-orange-300 text-orange-600">
+                  🛒 Sugestões
+                </Badge>
+              )}
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => toggleShowInCart(cat)}
+                className={`text-xs underline ${cat.show_in_cart ? 'text-orange-500 hover:text-orange-700' : 'text-gray-400 hover:text-gray-600'}`}
+                title="Produtos desta categoria aparecem como sugestões no carrinho"
+              >
+                {cat.show_in_cart ? 'No carrinho ✓' : 'Mostrar no carrinho'}
+              </button>
               <button onClick={() => toggleActive(cat)} className="text-xs text-gray-400 hover:text-gray-600 underline">
                 {cat.is_active ? 'Desativar' : 'Ativar'}
               </button>

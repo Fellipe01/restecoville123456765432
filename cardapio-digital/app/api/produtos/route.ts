@@ -21,7 +21,15 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   const supabase = await createClient()
+
+  // Apenas admins autenticados podem modificar produtos (A-2)
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  }
+
   const { id, ...updates } = await request.json()
+  if (!id) return NextResponse.json({ error: 'ID obrigatório' }, { status: 400 })
 
   const { data, error } = await supabase.from('products').update(updates).eq('id', id).select().single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

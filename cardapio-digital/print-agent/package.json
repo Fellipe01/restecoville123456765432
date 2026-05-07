@@ -1,0 +1,13 @@
+{
+  "name": "cardapio-print-agent",
+  "version": "1.0.0",
+  "description": "Agente de impressão para Epson TM-T20 via rede",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.4",
+    "dotenv": "^16.5.0"
+  }
+}

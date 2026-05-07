@@ -18,6 +18,7 @@ interface Props {
 export default function RestauranteConfigClient({ restaurant }: Props) {
   const [form, setForm] = useState({
     name: restaurant?.name ?? '',
+    city: restaurant?.city ?? '',
     primary_color: restaurant?.primary_color ?? '#f97316',
     operation_mode: restaurant?.operation_mode ?? 'ambos',
     estimated_time_balcao: restaurant?.estimated_time_balcao ?? 20,
@@ -66,6 +67,16 @@ export default function RestauranteConfigClient({ restaurant }: Props) {
         <div>
           <Label>Nome do restaurante</Label>
           <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="mt-1" />
+        </div>
+        <div>
+          <Label>Cidade / Estado</Label>
+          <Input
+            value={form.city}
+            onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))}
+            placeholder="Ex: Gurupi - TO"
+            className="mt-1"
+          />
+          <p className="text-xs text-gray-400 mt-1">Usado para localização no Maps pelos entregadores</p>
         </div>
         <div>
           <Label>Cor principal</Label>

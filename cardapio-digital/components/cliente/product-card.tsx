@@ -29,8 +29,8 @@ export default function ProductCard({ product }: Props) {
       </div>
 
       {product.image_url && (
-        <div className="relative h-20 w-20 rounded-lg overflow-hidden shrink-0">
-          <Image src={product.image_url} alt={product.name} fill className="object-cover" />
+        <div className="relative h-24 w-24 rounded-lg overflow-hidden shrink-0">
+          <Image src={product.image_url} alt={product.name} fill sizes="96px" className="object-cover" />
         </div>
       )}
     </div>

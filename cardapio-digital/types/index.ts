@@ -10,7 +10,18 @@ export interface Restaurant {
   whatsapp_number: string | null
   estimated_time_balcao: number
   estimated_time_delivery: number
+  city: string
+  lat: number | null
+  lng: number | null
   created_at: string
+}
+
+export interface Deliverer {
+  id: string
+  restaurant_id: string
+  name: string
+  phone: string | null
+  is_active: boolean
 }
 
 export interface BusinessHours {
@@ -30,6 +41,7 @@ export interface Category {
   image_url: string | null
   sort_order: number
   is_active: boolean
+  show_in_cart: boolean
   created_at: string
 }
 
@@ -113,6 +125,8 @@ export interface Order {
   status: OrderStatus
   table_number: string | null
   address: string | null
+  latitude: number | null
+  longitude: number | null
   delivery_zone_id: string | null
   delivery_fee: number
   subtotal: number
@@ -123,8 +137,11 @@ export interface Order {
   estimated_ready_at: string | null
   created_at: string
   updated_at: string
+  deliverer_id?: string | null
+  group_id?: string | null
   items?: OrderItem[]
   delivery_zone?: DeliveryZone
+  deliverer?: Deliverer
 }
 
 export interface OrderItem {

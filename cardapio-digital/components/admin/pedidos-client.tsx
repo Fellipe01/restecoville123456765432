@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import Link from 'next/link'
-import { Clock } from 'lucide-react'
+import { Clock, Printer } from 'lucide-react'
 
 const COLUMNS: { status: OrderStatus; label: string; headerClass: string; bgClass: string }[] = [
   { status: 'recebido',   label: 'Recebido',        headerClass: 'bg-blue-500',   bgClass: 'bg-blue-50'   },
@@ -24,10 +24,10 @@ const COLUMN_ICON: Record<string, string> = {
 
 function getNextStatus(order: Order): OrderStatus | null {
   if (order.status === 'pronto' && order.type === 'balcao') return 'entregue'
+  if (order.status === 'pronto' && order.type === 'delivery') return null // entregador assume
   const map: Partial<Record<OrderStatus, OrderStatus>> = {
     recebido: 'preparando',
     preparando: 'pronto',
-    pronto: 'saindo',
     saindo: 'entregue',
   }
   return map[order.status] ?? null
@@ -36,7 +36,6 @@ function getNextStatus(order: Order): OrderStatus | null {
 function getAdvanceLabel(order: Order): string {
   if (order.status === 'saindo') return 'Entregar ✓'
   if (order.status === 'pronto' && order.type === 'balcao') return 'Entregar ✓'
-  if (order.status === 'pronto') return 'Saindo 🛵'
   if (order.status === 'preparando') return 'Pronto ✓'
   return 'Avançar →'
 }
@@ -63,7 +62,19 @@ export default function PedidosClient({ initialOrders }: Props) {
   const [orders, setOrders] = useState<Order[]>(initialOrders)
   const supabase = createClient()
 
+  async function fetchAll() {
+    const { data } = await supabase
+      .from('orders')
+      .select('*, items:order_items(*, addons:order_item_addons(*), variations:order_item_variations(*))')
+      .not('status', 'eq', 'cancelado')
+      .order('created_at', { ascending: false })
+    if (data) setOrders(data as Order[])
+  }
+
   useEffect(() => {
+    // Polling a cada 30s — fallback caso o Realtime perca algum evento
+    const poll = setInterval(fetchAll, 30_000)
+
     const channel = supabase
       .channel('pedidos-realtime')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
@@ -90,7 +101,7 @@ export default function PedidosClient({ initialOrders }: Props) {
         }
       })
       .subscribe()
-    return () => { supabase.removeChannel(channel) }
+    return () => { supabase.removeChannel(channel); clearInterval(poll) }
   }, [])
 
   async function advanceStatus(order: Order) {
@@ -102,6 +113,12 @@ export default function PedidosClient({ initialOrders }: Props) {
       toast.error('Erro ao atualizar — rode a migration 006 no Supabase')
       setOrders((prev) => prev.map((o) => o.id === order.id ? { ...o, status: order.status } : o))
     }
+  }
+
+  async function imprimir(order: Order, tipo: 'cozinha' | 'entrega') {
+    const { error } = await supabase.from('print_jobs').insert({ order_id: order.id, type: tipo })
+    if (error) toast.error('Erro ao enviar para impressora')
+    else toast.success('Enviado para impressora 🖨️')
   }
 
   async function cancelOrder(order: Order) {
@@ -188,19 +205,44 @@ export default function PedidosClient({ initialOrders }: Props) {
                         <p className="text-xs text-gray-400">Troco p/ R$ {Number(order.troco).toFixed(2)}</p>
                       )}
 
+                      {/* Aguardando entregador */}
+                      {order.status === 'pronto' && order.type === 'delivery' && (
+                        <p className="text-xs text-center text-purple-600 font-semibold bg-purple-50 rounded py-1">
+                          🛵 Aguardando entregador
+                        </p>
+                      )}
+
                       {/* Valor + ações */}
                       <div className="flex items-center justify-between pt-1 border-t">
                         <span className="font-bold text-orange-500 text-sm">
                           {formatCurrency(order.total)}
                         </span>
                         {!isEntregue && (
-                          <div className="flex gap-1">
+                          <div className="flex gap-1 items-center">
                             <button
                               onClick={() => cancelOrder(order)}
                               className="text-xs text-red-400 hover:text-red-600 px-1"
                             >
                               ✕
                             </button>
+                            {(['recebido', 'preparando'] as const).includes(order.status as any) && (
+                              <button
+                                onClick={() => imprimir(order, 'cozinha')}
+                                title="Imprimir cozinha"
+                                className="text-gray-400 hover:text-gray-700 px-1"
+                              >
+                                <Printer className="h-4 w-4" />
+                              </button>
+                            )}
+                            {(['pronto', 'saindo'] as const).includes(order.status as any) && order.type === 'delivery' && (
+                              <button
+                                onClick={() => imprimir(order, 'entrega')}
+                                title="Imprimir recibo entregador"
+                                className="text-gray-400 hover:text-purple-600 px-1"
+                              >
+                                <Printer className="h-4 w-4" />
+                              </button>
+                            )}
                             {getNextStatus(order) && (
                               <Button
                                 size="sm"

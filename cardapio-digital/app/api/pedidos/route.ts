@@ -34,12 +34,17 @@ const orderSchema = z.object({
   notes: z.string().optional().nullable(),
   payment_method: z.enum(['dinheiro', 'debito', 'credito']),
   troco: z.number().optional().nullable(),
+  latitude: z.number().optional().nullable(),
+  longitude: z.number().optional().nullable(),
   items: z.array(itemSchema).min(1).max(50),
 })
 
 export async function POST(request: NextRequest) {
-  // Rate limiting por IP
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  // Rate limiting por IP — usa x-real-ip (Vercel/proxies confiáveis) primeiro (A-1)
+  const ip =
+    request.headers.get('x-real-ip') ??
+    request.headers.get('x-forwarded-for')?.split(',').at(-1)?.trim() ??
+    'unknown'
   const rateCheck = checkRateLimit(ip)
   if (!rateCheck.ok) {
     return NextResponse.json(
@@ -148,11 +153,19 @@ export async function POST(request: NextRequest) {
         estimated_ready_at,
         payment_method: data.payment_method,
         troco: data.troco != null ? String(data.troco) : '',
+        latitude: data.latitude ?? null,
+        longitude: data.longitude ?? null,
         items: validatedItems,
       },
     })
 
     if (!rpcError) {
+      if (data.latitude != null && data.longitude != null) {
+        await supabase
+          .from('orders')
+          .update({ latitude: data.latitude, longitude: data.longitude })
+          .eq('id', rpcResult.id)
+      }
       const { data: order } = await supabase
         .from('orders')
         .select('*, items:order_items(*)')
@@ -179,6 +192,8 @@ export async function POST(request: NextRequest) {
         estimated_ready_at,
         payment_method: data.payment_method,
         troco: data.troco ?? null,
+        latitude: data.latitude ?? null,
+        longitude: data.longitude ?? null,
       })
       .select()
       .single()
@@ -236,6 +251,13 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
+
+  // Apenas admins autenticados podem listar pedidos (C-4 — LGPD)
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  }
+
   const { searchParams } = new URL(request.url)
   const status = searchParams.get('status')
 

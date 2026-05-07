@@ -98,8 +98,7 @@ export default function ItemClient({ product }: Props) {
       variations: selectedVariations,
     })
 
-    toast.success(`${product.name} adicionado ao carrinho`)
-    router.back()
+    router.push('/carrinho')
   }
 
   return (

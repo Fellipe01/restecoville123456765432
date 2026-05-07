@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, ClipboardList, ChefHat, UtensilsCrossed,
-  Settings, LogOut, Menu, X
+  Settings, LogOut, Menu, X, Bike
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -16,6 +16,7 @@ const navItems = [
   { href: '/admin/cozinha', label: 'Cozinha', icon: ChefHat },
   { href: '/admin/cardapio/categorias', label: 'Cardápio', icon: UtensilsCrossed },
   { href: '/admin/configuracoes/restaurante', label: 'Configurações', icon: Settings },
+  { href: '/admin/configuracoes/entregadores', label: 'Entregadores', icon: Bike },
 ]
 
 export default function AdminSidebar() {

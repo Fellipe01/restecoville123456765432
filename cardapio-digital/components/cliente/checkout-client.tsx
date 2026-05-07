@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -16,6 +17,8 @@ import { ArrowLeft, Loader2, ChevronRight } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
+const MapPicker = dynamic(() => import('@/components/cliente/map-picker'), { ssr: false })
+
 const schema = z.object({
   customer_name: z.string().min(2, 'Nome obrigatório'),
   customer_phone: z.string().min(10, 'WhatsApp inválido'),
@@ -27,17 +30,21 @@ const schema = z.object({
   notes: z.string().optional(),
   payment_method: z.enum(['dinheiro', 'debito', 'credito']),
   troco: z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (data.payment_method === 'dinheiro' && !data.troco?.trim()) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Informe o valor para o troco', path: ['troco'] })
+  }
 })
 
 type FormData = z.infer<typeof schema>
 
 const PAYMENT_OPTIONS: { value: PaymentMethod; label: string; icon: string }[] = [
   { value: 'dinheiro', label: 'Dinheiro', icon: '💵' },
-  { value: 'debito', label: 'Débito', icon: '💳' },
-  { value: 'credito', label: 'Crédito', icon: '💳' },
+  { value: 'debito',   label: 'Débito',   icon: '💳' },
+  { value: 'credito',  label: 'Crédito',  icon: '💳' },
 ]
 
-const STEP_LABELS = ['Seus dados', 'Pedido', 'Confirmar']
+const STEP_LABELS = ['Entrega', 'Pagamento', 'Confirmar']
 
 interface Props {
   restaurant: Restaurant | null
@@ -50,6 +57,7 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
   const cartStore = useCartStore()
   const [loading, setLoading] = useState(false)
   const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
 
   const mode = restaurant?.operation_mode ?? 'ambos'
   const defaultType: OrderType = mode === 'delivery' ? 'delivery' : 'balcao'
@@ -74,34 +82,46 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
   const subtotal = getSubtotal()
   const total = subtotal + deliveryFee
 
+  function handleLocationSelect(lat: number, lng: number, address: string) {
+    setCoords({ lat, lng })
+    if (address) setValue('address', address)
+  }
+
   async function goToStep2() {
     const valid = await trigger(['customer_name', 'customer_phone'])
-    if (valid) setStep(2)
+    if (!valid) return
+
+    if (orderType === 'delivery') {
+      if (!coords) { toast.error('Marque o local de entrega no mapa'); return }
+      if (!deliveryZoneId) { toast.error('Selecione o bairro de entrega'); return }
+      if (selectedZone && selectedZone.minimum_order > 0 && subtotal < selectedZone.minimum_order) {
+        toast.error(`Pedido mínimo para ${selectedZone.name}: ${formatCurrency(selectedZone.minimum_order)}`); return
+      }
+    }
+
+    window.scrollTo(0, 0)
+    setStep(2)
   }
 
   async function goToStep3() {
-    const fields: (keyof FormData)[] = ['order_type']
-    if (orderType === 'delivery') fields.push('delivery_zone_id')
-    const valid = await trigger(fields)
-    if (orderType === 'delivery' && !deliveryZoneId) {
-      toast.error('Selecione o bairro de entrega')
-      return
+    if (paymentMethod === 'dinheiro') {
+      if (!watch('troco')?.trim()) { toast.error('Informe o valor para o troco'); return }
+      const trocoVal = parseFloat(watch('troco') ?? '0')
+      if (trocoVal < total) { toast.error(`Troco deve ser maior ou igual ao total (${formatCurrency(total)})`); return }
     }
-    if (orderType === 'delivery' && !watch('address')?.trim()) {
-      toast.error('Informe o endereço de entrega')
-      return
-    }
-    if (orderType === 'delivery' && selectedZone && selectedZone.minimum_order > 0 && subtotal < selectedZone.minimum_order) {
-      toast.error(`Pedido mínimo para ${selectedZone.name}: ${formatCurrency(selectedZone.minimum_order)}`)
-      return
-    }
-    if (valid) setStep(3)
+    window.scrollTo(0, 0)
+    setStep(3)
+  }
+
+  function goBack() {
+    if (step === 1) { router.back(); return }
+    window.scrollTo(0, 0)
+    setStep((s) => (s - 1) as 1 | 2 | 3)
   }
 
   async function onSubmit(data: FormData) {
     if (items.length === 0) { toast.error('Carrinho vazio'); return }
 
-    // Junta endereço + complemento/referência em um único campo
     const fullAddress = data.complement?.trim()
       ? `${data.address?.trim()}, ${data.complement.trim()}`
       : data.address?.trim()
@@ -131,6 +151,8 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
           notes: data.notes,
           payment_method: data.payment_method,
           troco: data.payment_method === 'dinheiro' && data.troco ? parseFloat(data.troco) : null,
+          latitude: coords?.lat ?? null,
+          longitude: coords?.lng ?? null,
           items: items.map((item) => ({
             product_id: item.product_id,
             product_name: item.product_name,
@@ -158,58 +180,54 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
   return (
     <div className="max-w-2xl mx-auto bg-white min-h-screen">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-4 border-b">
-        <button
-          onClick={() => step > 1 ? setStep((s) => (s - 1) as 1 | 2 | 3) : router.back()}
-          aria-label="Voltar"
-          className="p-1"
-        >
+      <div className="flex items-center gap-3 px-4 py-4 border-b sticky top-0 bg-white z-10">
+        <button onClick={goBack} aria-label="Voltar" className="p-1">
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-lg font-bold">Finalizar pedido</h1>
+        <div className="flex-1">
+          <h1 className="text-base font-bold leading-tight">Finalizar pedido</h1>
+          <p className="text-xs text-gray-400">{STEP_LABELS[step - 1]}</p>
+        </div>
+        <p className="text-xs text-gray-400 font-medium">{step}/3</p>
       </div>
 
       {/* Barra de progresso */}
-      <div className="px-4 pt-4">
-        <div className="flex gap-1.5 mb-1">
-          {[1, 2, 3].map((s) => (
-            <div
-              key={s}
-              className={`h-1 flex-1 rounded-full transition-colors duration-300 ${s <= step ? 'bg-orange-500' : 'bg-gray-200'}`}
-            />
-          ))}
-        </div>
-        <p className="text-xs text-gray-400">Passo {step} de 3 — {STEP_LABELS[step - 1]}</p>
+      <div className="flex gap-1 px-4 pt-3">
+        {[1, 2, 3].map((s) => (
+          <div
+            key={s}
+            className={`h-1 flex-1 rounded-full transition-colors duration-300 ${s <= step ? 'bg-orange-500' : 'bg-gray-200'}`}
+          />
+        ))}
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="px-4 py-5 space-y-5 pb-36">
 
-        {/* STEP 1: Dados pessoais */}
+        {/* ── STEP 1: Dados + Entrega ── */}
         {step === 1 && (
-          <div className="space-y-4">
-            <h2 className="font-semibold text-gray-800">Seus dados</h2>
-            <div>
-              <Label>Nome</Label>
-              <Input {...register('customer_name')} placeholder="Seu nome" className="mt-1" />
-              {errors.customer_name && <p className="text-red-500 text-xs mt-1">{errors.customer_name.message}</p>}
-            </div>
-            <div>
-              <Label>WhatsApp</Label>
-              <Input
-                {...register('customer_phone')}
-                type="tel"
-                inputMode="numeric"
-                placeholder="(11) 99999-9999"
-                className="mt-1"
-              />
-              {errors.customer_phone && <p className="text-red-500 text-xs mt-1">{errors.customer_phone.message}</p>}
-            </div>
-          </div>
-        )}
-
-        {/* STEP 2: Tipo + entrega + pagamento + obs */}
-        {step === 2 && (
           <div className="space-y-5">
+            <div className="space-y-4">
+              <h2 className="font-semibold text-gray-800">Seus dados</h2>
+              <div>
+                <Label>Nome</Label>
+                <Input {...register('customer_name')} placeholder="Seu nome" className="mt-1" />
+                {errors.customer_name && <p className="text-red-500 text-xs mt-1">{errors.customer_name.message}</p>}
+              </div>
+              <div>
+                <Label>WhatsApp</Label>
+                <Input
+                  {...register('customer_phone')}
+                  type="tel"
+                  inputMode="numeric"
+                  placeholder="(11) 99999-9999"
+                  className="mt-1"
+                />
+                {errors.customer_phone && <p className="text-red-500 text-xs mt-1">{errors.customer_phone.message}</p>}
+              </div>
+            </div>
+
+            <Separator />
+
             {mode === 'ambos' && (
               <div className="space-y-3">
                 <h2 className="font-semibold text-gray-800">Tipo de pedido</h2>
@@ -239,9 +257,16 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
 
             {orderType === 'delivery' && (
               <div className="space-y-3">
-                <h2 className="font-semibold text-gray-800">Entrega</h2>
-
-                {/* Bairro — select nativo para evitar bug de label com Base UI */}
+                <h2 className="font-semibold text-gray-800">Local de entrega</h2>
+                <MapPicker onLocationSelect={handleLocationSelect} initialCoords={coords} />
+                <div>
+                  <Label>Endereço <span className="text-gray-400 font-normal text-xs">(preenchido pelo mapa)</span></Label>
+                  <Input {...register('address')} placeholder="Toque no mapa para preencher..." className="mt-1 bg-gray-50" />
+                </div>
+                <div>
+                  <Label>Complemento <span className="text-gray-400 font-normal">(opcional)</span></Label>
+                  <Input {...register('complement')} placeholder="Ex: Apto 4, próximo ao mercado..." className="mt-1" />
+                </div>
                 <div>
                   <Label>Bairro <span className="text-red-400">*</span></Label>
                   <select
@@ -256,81 +281,17 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
                     ))}
                   </select>
                 </div>
-
-                {/* Endereço obrigatório */}
-                <div>
-                  <Label>Rua e número <span className="text-red-400">*</span></Label>
-                  <Input
-                    {...register('address')}
-                    placeholder="Ex: Rua das Flores, 123"
-                    className="mt-1"
-                  />
-                </div>
-
-                {/* Complemento / ponto de referência */}
-                <div>
-                  <Label>Complemento / Ponto de referência <span className="text-gray-400 font-normal">(opcional)</span></Label>
-                  <Input
-                    {...register('complement')}
-                    placeholder="Ex: Apto 4, próximo ao mercado vermelho..."
-                    className="mt-1"
-                  />
-                </div>
               </div>
             )}
+          </div>
+        )}
 
-            <Separator />
-
-            <div className="space-y-3">
-              <h2 className="font-semibold text-gray-800">Forma de pagamento</h2>
-              <p className="text-xs text-gray-400">Você paga {orderType === 'delivery' ? 'na entrega' : 'no balcão'}</p>
-              <div className="grid grid-cols-3 gap-2">
-                {PAYMENT_OPTIONS.map(({ value, label, icon }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setValue('payment_method', value)}
-                    className={`py-3 rounded-xl border-2 font-medium text-sm transition-colors flex flex-col items-center gap-1 ${
-                      paymentMethod === value
-                        ? 'border-orange-500 bg-orange-50 text-orange-700'
-                        : 'border-gray-200 text-gray-600'
-                    }`}
-                  >
-                    <span className="text-lg">{icon}</span>
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {paymentMethod === 'dinheiro' && (
-                <div>
-                  <Label>Troco para (opcional)</Label>
-                  <Input
-                    {...register('troco')}
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="Ex: 50.00"
-                    className="mt-1"
-                  />
-                </div>
-              )}
-            </div>
-
-            <Separator />
-
-            <div>
-              <Label>Observações (opcional)</Label>
-              <Textarea
-                {...register('notes')}
-                placeholder="Alguma observação geral..."
-                rows={2}
-                className="mt-1 text-sm"
-              />
-            </div>
-
-            {/* Mini resumo do pedido */}
+        {/* ── STEP 2: Pagamento ── */}
+        {step === 2 && (
+          <div className="space-y-5">
+            {/* Resumo compacto */}
             <div className="bg-orange-50 rounded-xl p-4 space-y-2 border border-orange-100">
-              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Resumo</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Resumo do pedido</p>
               {items.map((item) => (
                 <div key={item.id} className="flex justify-between text-sm text-gray-600">
                   <span>{item.quantity}× {item.product_name}</span>
@@ -348,53 +309,111 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
                 <span className="text-orange-600">{formatCurrency(total)}</span>
               </div>
             </div>
+
+            <Separator />
+
+            <div className="space-y-3">
+              <h2 className="font-semibold text-gray-800">Forma de pagamento</h2>
+              <p className="text-xs text-gray-400">Você paga {orderType === 'delivery' ? 'na entrega' : 'no balcão'}</p>
+              <div className="grid grid-cols-3 gap-2">
+                {PAYMENT_OPTIONS.map(({ value, label, icon }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setValue('payment_method', value)}
+                    className={`py-4 rounded-xl border-2 font-medium text-sm transition-colors flex flex-col items-center gap-1.5 ${
+                      paymentMethod === value
+                        ? 'border-orange-500 bg-orange-50 text-orange-700'
+                        : 'border-gray-200 text-gray-600'
+                    }`}
+                  >
+                    <span className="text-2xl">{icon}</span>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {paymentMethod === 'dinheiro' && (
+                <div>
+                  <Label>Troco para <span className="text-red-400">*</span></Label>
+                  <Input
+                    {...register('troco')}
+                    type="number"
+                    step="1"
+                    min={Math.ceil(total)}
+                    placeholder={`Mín. R$ ${Math.ceil(total)}`}
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Total do pedido: {formatCurrency(total)}</p>
+                  {errors.troco && <p className="text-red-500 text-xs mt-1">{errors.troco.message}</p>}
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
+            <div>
+              <Label>Observações (opcional)</Label>
+              <Textarea
+                {...register('notes')}
+                placeholder="Alguma observação geral..."
+                rows={3}
+                className="mt-1 text-sm"
+              />
+            </div>
           </div>
         )}
 
-        {/* STEP 3: Resumo + confirmar */}
+        {/* ── STEP 3: Confirmar ── */}
         {step === 3 && (
           <div className="space-y-4">
-            <h2 className="font-semibold text-gray-800">Resumo do pedido</h2>
+            <h2 className="font-semibold text-gray-800">Confirmar pedido</h2>
 
-            <div className="bg-gray-50 rounded-xl p-4 space-y-2 text-sm">
-              <div className="flex justify-between text-gray-500">
-                <span>Nome</span>
+            <div className="bg-gray-50 rounded-xl p-4 space-y-2.5 text-sm divide-y divide-gray-100">
+              <div className="flex justify-between pb-2">
+                <span className="text-gray-500">Nome</span>
                 <span className="font-medium text-gray-800">{watch('customer_name')}</span>
               </div>
-              <div className="flex justify-between text-gray-500">
-                <span>WhatsApp</span>
+              <div className="flex justify-between py-2">
+                <span className="text-gray-500">WhatsApp</span>
                 <span className="font-medium text-gray-800">{watch('customer_phone')}</span>
               </div>
-              <div className="flex justify-between text-gray-500">
-                <span>Tipo</span>
+              <div className="flex justify-between py-2">
+                <span className="text-gray-500">Tipo</span>
                 <span className="font-medium text-gray-800">{orderType === 'delivery' ? '🛵 Delivery' : '🏪 Balcão'}</span>
               </div>
-              {orderType === 'delivery' && selectedZone && (
+              {orderType === 'delivery' && (
                 <>
-                  <div className="flex justify-between text-gray-500">
-                    <span>Bairro</span>
-                    <span className="font-medium text-gray-800">{selectedZone.name}</span>
-                  </div>
+                  {selectedZone && (
+                    <div className="flex justify-between py-2">
+                      <span className="text-gray-500">Bairro</span>
+                      <span className="font-medium text-gray-800">{selectedZone.name}</span>
+                    </div>
+                  )}
                   {watch('address') && (
-                    <div className="flex justify-between text-gray-500">
-                      <span>Endereço</span>
+                    <div className="flex justify-between py-2">
+                      <span className="text-gray-500">Endereço</span>
                       <span className="font-medium text-gray-800 text-right max-w-[60%]">
                         {watch('address')}{watch('complement') ? `, ${watch('complement')}` : ''}
                       </span>
                     </div>
                   )}
+                  {coords && (
+                    <div className="flex justify-between py-2">
+                      <span className="text-gray-500">Localização</span>
+                      <span className="text-green-600 text-xs font-medium">📍 Pin no mapa salvo</span>
+                    </div>
+                  )}
                 </>
               )}
-              <div className="flex justify-between text-gray-500">
-                <span>Pagamento</span>
+              <div className="flex justify-between pt-2">
+                <span className="text-gray-500">Pagamento</span>
                 <span className="font-medium text-gray-800">
                   {PAYMENT_OPTIONS.find((p) => p.value === paymentMethod)?.label}
                   {paymentMethod === 'dinheiro' && watch('troco') ? ` · troco p/ R$ ${watch('troco')}` : ''}
                 </span>
               </div>
             </div>
-
-            <Separator />
 
             <div className="bg-gray-50 rounded-xl p-4 space-y-2">
               {items.map((item) => (
@@ -404,7 +423,7 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
                 </div>
               ))}
               <Separator />
-              <div className="flex justify-between text-sm">
+              <div className="flex justify-between text-sm text-gray-500">
                 <span>Subtotal</span>
                 <span>{formatCurrency(subtotal)}</span>
               </div>
@@ -414,11 +433,18 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
                   <span>{formatCurrency(deliveryFee)}</span>
                 </div>
               )}
-              <div className="flex justify-between font-bold text-base">
+              <div className="flex justify-between font-bold text-base pt-1">
                 <span>Total</span>
                 <span className="text-orange-500">{formatCurrency(total)}</span>
               </div>
             </div>
+
+            {watch('notes') && (
+              <div className="bg-yellow-50 border border-yellow-100 rounded-xl px-4 py-3">
+                <p className="text-xs text-gray-500 mb-1">Observações</p>
+                <p className="text-sm text-gray-700">{watch('notes')}</p>
+              </div>
+            )}
           </div>
         )}
       </form>
@@ -426,20 +452,12 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
       {/* CTA sticky */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t px-4 py-4 max-w-2xl mx-auto">
         {step === 1 && (
-          <Button
-            type="button"
-            onClick={goToStep2}
-            className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-6 text-base"
-          >
+          <Button type="button" onClick={goToStep2} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-6 text-base">
             Continuar <ChevronRight className="h-5 w-5 ml-1" />
           </Button>
         )}
         {step === 2 && (
-          <Button
-            type="button"
-            onClick={goToStep3}
-            className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-6 text-base"
-          >
+          <Button type="button" onClick={goToStep3} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-6 text-base">
             Revisar pedido <ChevronRight className="h-5 w-5 ml-1" />
           </Button>
         )}

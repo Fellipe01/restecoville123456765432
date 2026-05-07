@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { Product } from '@/types'
 import { formatCurrency } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Upload, X, ImageIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -29,6 +29,8 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState(emptyForm)
   const [loading, setLoading] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
 
   function openCreate() {
@@ -69,6 +71,34 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
     setOpen(false)
   }
 
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) { toast.error('Imagem muito grande. Máximo 5 MB.'); return }
+
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const res = await fetch('/api/admin/upload-image', { method: 'POST', body: formData })
+      const json = await res.json()
+
+      if (!res.ok) {
+        toast.error(json.error ?? 'Erro ao enviar imagem')
+        return
+      }
+
+      setForm((f) => ({ ...f, image_url: json.url }))
+      toast.success('Imagem enviada!')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    } catch {
+      toast.error('Erro de conexão ao enviar imagem')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   async function toggleAvailable(p: Product) {
     const { error } = await supabase.from('products').update({ is_available: !p.is_available }).eq('id', p.id)
     if (!error) setProducts((prev) => prev.map((item) => item.id === p.id ? { ...item, is_available: !item.is_available } : item))
@@ -101,8 +131,8 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
         {products.map((p) => (
           <div key={p.id} className="bg-white rounded-xl p-4 shadow-sm flex items-center gap-4">
             {p.image_url && (
-              <div className="relative h-14 w-14 rounded-lg overflow-hidden shrink-0">
-                <Image src={p.image_url} alt={p.name} fill className="object-cover" />
+              <div className="relative h-16 w-16 rounded-lg overflow-hidden shrink-0">
+                <Image src={p.image_url} alt={p.name} fill sizes="64px" className="object-cover" />
               </div>
             )}
             <div className="flex-1 min-w-0">
@@ -155,8 +185,52 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
               <Input type="number" step="0.01" value={form.base_price} onChange={(e) => setForm((f) => ({ ...f, base_price: e.target.value }))} className="mt-1" />
             </div>
             <div>
-              <Label>URL da imagem</Label>
-              <Input value={form.image_url} onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))} placeholder="https://..." className="mt-1" />
+              <Label>Imagem do produto</Label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleImageUpload}
+              />
+              {form.image_url ? (
+                <div className="mt-1 relative rounded-xl overflow-hidden bg-gray-100 h-40 w-full">
+                  <Image src={form.image_url} alt="preview" fill className="object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, image_url: '' }))}
+                    className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white rounded-full p-1"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                    className="absolute bottom-2 right-2 bg-black/60 hover:bg-black/80 text-white text-xs rounded-lg px-3 py-1.5 flex items-center gap-1.5"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    {uploading ? 'Enviando...' : 'Trocar'}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="mt-1 w-full h-32 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-orange-400 hover:text-orange-500 transition-colors"
+                >
+                  {uploading ? (
+                    <span className="text-sm">Enviando...</span>
+                  ) : (
+                    <>
+                      <ImageIcon className="h-8 w-8" />
+                      <span className="text-sm font-medium">Clique para escolher imagem</span>
+                      <span className="text-xs">JPG, PNG, WebP · máx 5 MB</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
             <Button onClick={handleSave} disabled={loading} className="w-full bg-orange-500 hover:bg-orange-600">
               {editing ? 'Salvar' : 'Criar'}
