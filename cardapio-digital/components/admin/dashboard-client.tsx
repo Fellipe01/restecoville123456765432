@@ -9,13 +9,13 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ShoppingBag, DollarSign, TrendingUp, Clock,
-  TrendingDown, Minus, ArrowRight, Package,
+  TrendingDown, Minus, ArrowRight, Package, CalendarDays,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
 
-type Period = 'hoje' | 'semana' | 'mes'
+type Period = 'hoje' | 'semana' | 'mes' | 'custom'
 
 interface RichItem {
   id: string
@@ -51,28 +51,28 @@ function playNotification() {
   } catch {}
 }
 
-function getPeriodRange(period: Period): { from: Date; compFrom: Date; compTo: Date; yearFrom: Date; yearTo: Date } {
-  const now = new Date()
-  const from = new Date(now)
-  if (period === 'hoje') {
-    from.setHours(0, 0, 0, 0)
-  } else if (period === 'semana') {
-    from.setDate(from.getDate() - 7)
-    from.setHours(0, 0, 0, 0)
-  } else {
-    from.setDate(from.getDate() - 30)
-    from.setHours(0, 0, 0, 0)
-  }
+function todayStr() {
+  return new Date().toISOString().slice(0, 10)
+}
 
-  const duration = now.getTime() - from.getTime()
+function presetRange(period: Exclude<Period, 'custom'>): { from: Date; to: Date } {
+  const now = new Date()
+  const to = new Date(now)
+  const from = new Date(now)
+  from.setHours(0, 0, 0, 0)
+  if (period === 'semana') from.setDate(from.getDate() - 7)
+  else if (period === 'mes') from.setDate(from.getDate() - 30)
+  return { from, to }
+}
+
+function buildRanges(from: Date, to: Date) {
+  const duration = to.getTime() - from.getTime()
   const compTo = new Date(from)
   const compFrom = new Date(compTo.getTime() - duration)
-
   const yearTo = new Date(from)
   yearTo.setFullYear(yearTo.getFullYear() - 1)
   const yearFrom = new Date(yearTo.getTime() - duration)
-
-  return { from, compFrom, compTo, yearFrom, yearTo }
+  return { compFrom, compTo, yearFrom, yearTo }
 }
 
 function deltaLabel(current: number, previous: number): { pct: number; up: boolean; neutral: boolean } {
@@ -87,12 +87,14 @@ export default function DashboardClient({ restaurantId }: Props) {
   const router = useRouter()
   const supabase = createClient()
   const [period, setPeriod] = useState<Period>('hoje')
+  const [customFrom, setCustomFrom] = useState(todayStr())
+  const [customTo, setCustomTo] = useState(todayStr())
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const fetchData = useCallback(async (p: Period) => {
+  const fetchData = useCallback(async (from: Date, to: Date) => {
     setLoading(true)
-    const { from, compFrom, compTo, yearFrom, yearTo } = getPeriodRange(p)
+    const { compFrom, compTo, yearFrom, yearTo } = buildRanges(from, to)
 
     const [
       { data: orders },
@@ -105,6 +107,7 @@ export default function DashboardClient({ restaurantId }: Props) {
         .from('orders')
         .select('*, items:order_items(id, product_name, quantity, unit_price, total_price, addons:order_item_addons(id))')
         .gte('created_at', from.toISOString())
+        .lte('created_at', to.toISOString())
         .neq('status', 'cancelado')
         .order('created_at', { ascending: false }),
 
@@ -131,7 +134,8 @@ export default function DashboardClient({ restaurantId }: Props) {
       supabase
         .from('page_sessions')
         .select('session_id, converted')
-        .gte('created_at', from.toISOString()),
+        .gte('created_at', from.toISOString())
+        .lte('created_at', to.toISOString()),
     ])
 
     setData({
@@ -144,23 +148,40 @@ export default function DashboardClient({ restaurantId }: Props) {
     setLoading(false)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const triggerFetch = useCallback((p: Period, cfrom?: string, cto?: string) => {
+    if (p === 'custom') {
+      const f = new Date(cfrom ?? customFrom)
+      f.setHours(0, 0, 0, 0)
+      const t = new Date(cto ?? customTo)
+      t.setHours(23, 59, 59, 999)
+      if (!isNaN(f.getTime()) && !isNaN(t.getTime())) fetchData(f, t)
+    } else {
+      const { from, to } = presetRange(p)
+      fetchData(from, to)
+    }
+  }, [customFrom, customTo, fetchData]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
-    fetchData(period)
-  }, [period, fetchData])
+    triggerFetch(period)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (period !== 'custom') triggerFetch(period)
+  }, [period]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const channel = supabase
       .channel('dashboard-realtime')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, () => {
         playNotification()
-        fetchData(period)
+        triggerFetch(period)
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
-        fetchData(period)
+        triggerFetch(period)
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [period, fetchData]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [period, triggerFetch]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived stats ───────────────────────────────────────────────────────────
   const orders = data?.orders ?? []
@@ -216,6 +237,7 @@ export default function DashboardClient({ restaurantId }: Props) {
     { value: 'hoje', label: 'Hoje' },
     { value: 'semana', label: '7 dias' },
     { value: 'mes', label: '30 dias' },
+    { value: 'custom', label: 'Personalizado' },
   ]
 
   return (
@@ -223,18 +245,49 @@ export default function DashboardClient({ restaurantId }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-          {PERIODS.map((p) => (
-            <button
-              key={p.value}
-              onClick={() => setPeriod(p.value)}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                period === p.value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {PERIODS.map((p) => (
+              <button
+                key={p.value}
+                onClick={() => setPeriod(p.value)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                  period === p.value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {p.value === 'custom' && <CalendarDays className="h-3.5 w-3.5" />}
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {period === 'custom' && (
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={customFrom}
+                max={customTo}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                className="h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-400"
+              />
+              <span className="text-gray-400 text-sm">até</span>
+              <input
+                type="date"
+                value={customTo}
+                min={customFrom}
+                max={todayStr()}
+                onChange={(e) => setCustomTo(e.target.value)}
+                className="h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-400"
+              />
+              <button
+                onClick={() => triggerFetch('custom')}
+                disabled={loading}
+                className="h-9 px-4 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-sm font-bold rounded-lg transition-colors"
+              >
+                Aplicar
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -450,7 +503,10 @@ export default function DashboardClient({ restaurantId }: Props) {
       {/* Tabela de pedidos */}
       <div>
         <h2 className="text-lg font-semibold text-gray-900 mb-3">
-          Todos os pedidos — {PERIODS.find((p) => p.value === period)?.label}
+          Todos os pedidos —{' '}
+          {period === 'custom'
+            ? `${customFrom} até ${customTo}`
+            : PERIODS.find((p) => p.value === period)?.label}
         </h2>
         <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
           <table className="w-full text-sm">
