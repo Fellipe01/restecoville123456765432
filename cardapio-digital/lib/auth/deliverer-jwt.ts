@@ -18,7 +18,7 @@ export async function signDelivererJWT(payload: DelivererPayload): Promise<strin
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(payload.sub)
     .setIssuedAt()
-    .setExpirationTime('7d')
+    .setExpirationTime('8h')
     .sign(getSecret())
 }
 

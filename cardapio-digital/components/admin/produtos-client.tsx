@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Product } from '@/types'
+import { Product, VariationGroup, Variation } from '@/types'
 import { formatCurrency } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Plus, Pencil, Trash2, Upload, X, ImageIcon } from 'lucide-react'
+import { Plus, Pencil, Trash2, Upload, X, ImageIcon, Layers } from 'lucide-react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -31,7 +31,14 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const variationFileRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
+
+  // Variações
+  const [variacoesProduct, setVariacoesProduct] = useState<Product | null>(null)
+  const [groups, setGroups] = useState<VariationGroup[]>([])
+  const [loadingGroups, setLoadingGroups] = useState(false)
+  const [uploadingVarId, setUploadingVarId] = useState<{ groupId: string; variationId: string } | null>(null)
 
   function openCreate() {
     setEditing(null)
@@ -99,6 +106,88 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
     }
   }
 
+  async function openVariacoes(product: Product) {
+    setVariacoesProduct(product)
+    setLoadingGroups(true)
+    const { data } = await supabase
+      .from('variation_groups')
+      .select('*, variations(*)')
+      .eq('product_id', product.id)
+      .order('sort_order')
+    if (data) setGroups(data as VariationGroup[])
+    setLoadingGroups(false)
+  }
+
+  async function addGroup() {
+    if (!variacoesProduct) return
+    const { data, error } = await supabase
+      .from('variation_groups')
+      .insert({ product_id: variacoesProduct.id, name: 'Novo grupo', required: false, min_selections: 0, max_selections: 1, sort_order: groups.length })
+      .select('*, variations(*)')
+      .single()
+    if (error) { toast.error('Erro ao adicionar grupo: ' + error.message); return }
+    if (data) setGroups((prev) => [...prev, data as VariationGroup])
+  }
+
+  async function updateGroup(groupId: string, updates: Partial<VariationGroup>) {
+    setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, ...updates } : g))
+    await supabase.from('variation_groups').update(updates).eq('id', groupId)
+  }
+
+  async function deleteGroup(groupId: string) {
+    if (!confirm('Apagar este grupo e todas as opções?')) return
+    setGroups((prev) => prev.filter((g) => g.id !== groupId))
+    await supabase.from('variation_groups').delete().eq('id', groupId)
+  }
+
+  async function addVariation(groupId: string) {
+    const group = groups.find((g) => g.id === groupId)
+    const { data, error } = await supabase
+      .from('variations')
+      .insert({ group_id: groupId, name: 'Nova opção', price_modifier: 0, is_available: true, sort_order: group?.variations?.length ?? 0 })
+      .select()
+      .single()
+    if (error) { toast.error('Erro ao adicionar opção: ' + error.message); return }
+    if (data) {
+      setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, variations: [...(g.variations ?? []), data as Variation] } : g))
+    }
+  }
+
+  async function updateVariation(groupId: string, variationId: string, updates: Partial<Variation>) {
+    const snapshot = groups
+    setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, variations: g.variations?.map((v) => v.id === variationId ? { ...v, ...updates } : v) } : g))
+    const { error } = await supabase.from('variations').update(updates).eq('id', variationId)
+    if (error) {
+      setGroups(snapshot)
+      toast.error('Erro ao salvar. Tente novamente.')
+    }
+  }
+
+  async function deleteVariation(groupId: string, variationId: string) {
+    setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, variations: g.variations?.filter((v) => v.id !== variationId) } : g))
+    await supabase.from('variations').delete().eq('id', variationId)
+  }
+
+  function triggerVariationImage(groupId: string, variationId: string) {
+    setUploadingVarId({ groupId, variationId })
+    variationFileRef.current?.click()
+  }
+
+  async function handleVariationImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !uploadingVarId) return
+    if (file.size > 5 * 1024 * 1024) { toast.error('Imagem muito grande. Máximo 5 MB.'); return }
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await fetch('/api/admin/upload-image', { method: 'POST', body: formData })
+    const json = await res.json()
+    if (!res.ok) { toast.error(json.error ?? 'Erro ao enviar imagem'); return }
+    await updateVariation(uploadingVarId.groupId, uploadingVarId.variationId, { image_url: json.url })
+    toast.success('Imagem adicionada!')
+    if (variationFileRef.current) variationFileRef.current.value = ''
+    setUploadingVarId(null)
+  }
+
   async function toggleAvailable(p: Product) {
     const { error } = await supabase.from('products').update({ is_available: !p.is_available }).eq('id', p.id)
     if (!error) setProducts((prev) => prev.map((item) => item.id === p.id ? { ...item, is_available: !item.is_available } : item))
@@ -147,6 +236,7 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
               <button onClick={() => toggleAvailable(p)} className={`text-xs underline ${p.is_available ? 'text-red-400 hover:text-red-600' : 'text-green-500 hover:text-green-700'}`}>
                 {p.is_available ? 'Desativar' : 'Ativar'}
               </button>
+              <button onClick={() => openVariacoes(p)} title="Gerenciar variações" className="text-gray-400 hover:text-orange-500"><Layers className="h-4 w-4" /></button>
               <button onClick={() => openEdit(p)} className="text-gray-400 hover:text-gray-700"><Pencil className="h-4 w-4" /></button>
               <button onClick={() => handleDelete(p)} className="text-red-400 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
             </div>
@@ -154,6 +244,144 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
         ))}
         {products.length === 0 && <p className="text-gray-400 text-sm text-center py-12">Nenhum produto. Crie o primeiro!</p>}
       </div>
+
+      {/* Dialog de Variações */}
+      <Dialog open={!!variacoesProduct} onOpenChange={(o) => { if (!o) setVariacoesProduct(null) }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Variações — {variacoesProduct?.name}</DialogTitle>
+          </DialogHeader>
+
+          {loadingGroups ? (
+            <div className="py-8 text-center text-gray-400 text-sm">Carregando...</div>
+          ) : (
+            <div className="space-y-4 pt-2">
+              {groups.length === 0 && (
+                <p className="text-center text-gray-400 text-sm py-4">Nenhum grupo ainda. Adicione um abaixo.</p>
+              )}
+
+              {groups.map((group) => (
+                <div key={group.id} className="border border-gray-200 rounded-xl p-3 space-y-3">
+                  {/* Cabeçalho do grupo */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      className="flex-1 font-semibold text-sm border-0 border-b border-gray-200 focus:border-orange-400 outline-none py-1 bg-transparent"
+                      defaultValue={group.name}
+                      onBlur={(e) => updateGroup(group.id, { name: e.target.value })}
+                    />
+                    <button onClick={() => deleteGroup(group.id)} className="text-red-400 hover:text-red-600 shrink-0">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  {/* Configurações do grupo */}
+                  <div className="flex items-center gap-4 text-xs text-gray-500">
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={group.required}
+                        onChange={(e) => updateGroup(group.id, { required: e.target.checked })}
+                      />
+                      Obrigatório
+                    </label>
+                    <label className="flex items-center gap-1.5">
+                      Máx. opções:
+                      <select
+                        className="border border-gray-200 rounded px-1 py-0.5 text-xs"
+                        value={group.max_selections}
+                        onChange={(e) => updateGroup(group.id, { max_selections: parseInt(e.target.value) })}
+                      >
+                        {[1,2,3,4,5,6,7,8,9,10].map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  {/* Opções do grupo */}
+                  <div className="space-y-3">
+                    {group.variations?.map((variation) => {
+                      const isSingle = group.max_selections === 1
+                      const basePrice = variacoesProduct?.base_price ?? 0
+                      const displayPrice = isSingle
+                        ? basePrice + variation.price_modifier
+                        : variation.price_modifier
+                      return (
+                      <div key={variation.id} className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          {/* Foto da variação */}
+                          <button
+                            type="button"
+                            onClick={() => triggerVariationImage(group.id, variation.id)}
+                            title="Adicionar foto"
+                            className="relative h-10 w-10 shrink-0 rounded-lg overflow-hidden border border-gray-200 hover:border-orange-400 flex items-center justify-center bg-gray-50 transition-colors"
+                          >
+                            {variation.image_url ? (
+                              <Image src={variation.image_url} alt={variation.name} fill sizes="40px" className="object-cover" />
+                            ) : (
+                              <ImageIcon className="h-4 w-4 text-gray-300" />
+                            )}
+                            {uploadingVarId?.variationId === variation.id && (
+                              <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                                <span className="text-white text-xs">...</span>
+                              </div>
+                            )}
+                          </button>
+                          <input
+                            className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:border-orange-400 outline-none"
+                            defaultValue={variation.name}
+                            placeholder="Nome da opção"
+                            onBlur={(e) => updateVariation(group.id, variation.id, { name: e.target.value })}
+                          />
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className="text-xs text-gray-400">{isSingle ? 'R$' : '+R$'}</span>
+                            <input
+                              className="w-16 text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:border-orange-400 outline-none"
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              key={`${variation.id}-price`}
+                              defaultValue={displayPrice}
+                              onBlur={(e) => {
+                                const val = parseFloat(e.target.value) || 0
+                                const modifier = isSingle ? val - basePrice : val
+                                updateVariation(group.id, variation.id, { price_modifier: modifier })
+                              }}
+                            />
+                          </div>
+                          <button onClick={() => deleteVariation(group.id, variation.id)} className="text-red-400 hover:text-red-600 shrink-0">
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <input
+                          className="w-full text-xs border border-gray-100 rounded-lg px-2 py-1.5 focus:border-orange-400 outline-none text-gray-500 placeholder:text-gray-300 ml-12"
+                          defaultValue={variation.description ?? ''}
+                          placeholder="Ingredientes ou descrição (opcional)"
+                          onBlur={(e) => updateVariation(group.id, variation.id, { description: e.target.value || null })}
+                        />
+                      </div>
+                    )})}
+
+                    <button
+                      onClick={() => addVariation(group.id)}
+                      className="text-xs text-orange-500 hover:text-orange-600 flex items-center gap-1 mt-1"
+                    >
+                      <Plus className="h-3 w-3" /> Adicionar opção
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              <Button variant="outline" className="w-full border-dashed" onClick={addGroup}>
+                <Plus className="h-4 w-4 mr-1" /> Adicionar grupo
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Input global para upload de imagem de variação */}
+      <input ref={variationFileRef} type="file" accept="image/*" className="hidden" onChange={handleVariationImageUpload} />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">

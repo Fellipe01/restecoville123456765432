@@ -5,10 +5,8 @@ import { Product, VariationGroup, AddonGroup, CartItemVariation, CartItemAddon }
 import { useCartStore, calculateItemPrice } from '@/lib/store/cart'
 import { formatCurrency } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
-import { Separator } from '@/components/ui/separator'
-import { ArrowLeft, Minus, Plus } from 'lucide-react'
+import { ArrowLeft, Minus, Plus, Check } from 'lucide-react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -19,7 +17,8 @@ interface Props {
 
 export default function ItemClient({ product }: Props) {
   const router = useRouter()
-  const { addItem } = useCartStore()
+  const { addItem, getItemCount } = useCartStore()
+  const cartCount = getItemCount()
 
   const [quantity, setQuantity] = useState(1)
   const [notes, setNotes] = useState('')
@@ -29,17 +28,18 @@ export default function ItemClient({ product }: Props) {
   const unitPrice = calculateItemPrice(product.base_price, selectedVariations, selectedAddons)
   const totalPrice = unitPrice * quantity
 
-  function handleVariationSelect(group: VariationGroup, variationId: string, variationName: string, priceModifier: number) {
+  function handleVariationSelect(group: VariationGroup, variationId: string, variationName: string, priceModifier: number, imageUrl?: string | null) {
     setSelectedVariations((prev) => {
+      const entry = { variation_id: variationId, variation_name: variationName, group_name: group.name, group_id: group.id, price_modifier: priceModifier, image_url: imageUrl }
       const others = prev.filter((v) => v.group_id !== group.id)
       if (group.max_selections === 1) {
-        return [...others, { variation_id: variationId, variation_name: variationName, group_name: group.name, group_id: group.id, price_modifier: priceModifier }]
+        return [...others, entry]
       }
       const exists = prev.find((v) => v.variation_id === variationId)
       if (exists) return prev.filter((v) => v.variation_id !== variationId)
       const groupSelected = prev.filter((v) => v.group_id === group.id)
       if (groupSelected.length >= group.max_selections) return prev
-      return [...prev, { variation_id: variationId, variation_name: variationName, group_name: group.name, group_id: group.id, price_modifier: priceModifier }]
+      return [...prev, entry]
     })
   }
 
@@ -102,135 +102,194 @@ export default function ItemClient({ product }: Props) {
   }
 
   return (
-    <div className="max-w-2xl mx-auto bg-white min-h-screen">
-      <div className="relative">
+    <div className="max-w-md mx-auto bg-gray-50 min-h-screen pb-44">
+      {/* Hero da imagem */}
+      <div className="relative bg-white">
         {product.image_url ? (
-          <div className="relative h-56 w-full">
-            <Image src={product.image_url} alt={product.name} fill className="object-cover" />
+          <div className="relative h-72 w-full">
+            <Image src={product.image_url} alt={product.name} fill priority className="object-cover" />
+            <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-white to-transparent" />
           </div>
         ) : (
-          <div className="h-32 bg-gray-100" />
+          <div className="h-48 bg-gradient-to-br from-orange-100 to-orange-200 flex items-center justify-center">
+            <span className="text-7xl">🍽️</span>
+          </div>
         )}
         <button
           onClick={() => router.back()}
-          className="absolute top-4 left-4 bg-white rounded-full p-2 shadow"
+          aria-label="Voltar"
+          className="absolute top-4 left-4 h-10 w-10 bg-white/95 backdrop-blur-sm rounded-full flex items-center justify-center shadow-lg active:scale-95 transition-transform"
         >
-          <ArrowLeft className="h-5 w-5" />
+          <ArrowLeft className="h-5 w-5 text-gray-800" />
         </button>
       </div>
 
-      <div className="px-4 py-4 space-y-4">
-        <div>
-          <div className="flex items-start justify-between gap-2">
-            <h1 className="text-xl font-bold text-gray-900">{product.name}</h1>
-            {!product.is_available && <Badge variant="secondary">Indisponível</Badge>}
-          </div>
-          {product.description && (
-            <p className="text-gray-500 mt-1 text-sm">{product.description}</p>
+      {/* Card flutuante com nome e preço */}
+      <div className="bg-white px-5 pt-2 pb-5">
+        <div className="flex items-start justify-between gap-3">
+          <h1 className="text-2xl font-bold text-gray-900 leading-tight">{product.name}</h1>
+          {!product.is_available && (
+            <span className="px-2.5 py-1 text-[11px] font-semibold bg-gray-100 text-gray-500 rounded-full shrink-0">
+              Indisponível
+            </span>
           )}
-          <p className="text-lg font-bold text-orange-500 mt-2">
-            {formatCurrency(product.base_price)}
-          </p>
         </div>
-
-        {product.variation_groups?.map((group) => (
-          <div key={group.id}>
-            <Separator />
-            <div className="py-3">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold text-gray-800">{group.name}</h3>
-                <div className="flex gap-1">
-                  {group.required && <Badge variant="destructive" className="text-xs">Obrigatório</Badge>}
-                  <Badge variant="outline" className="text-xs">
-                    {group.max_selections === 1 ? 'Escolha 1' : `Até ${group.max_selections}`}
-                  </Badge>
-                </div>
-              </div>
-              <div className="space-y-2">
-                {group.variations?.map((variation) => (
-                  <button
-                    key={variation.id}
-                    disabled={!variation.is_available}
-                    onClick={() => handleVariationSelect(group, variation.id, variation.name, variation.price_modifier)}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-sm transition-colors ${
-                      isVariationSelected(variation.id)
-                        ? 'border-orange-500 bg-orange-50'
-                        : 'border-gray-200 hover:border-gray-300'
-                    } ${!variation.is_available ? 'opacity-40 cursor-not-allowed' : ''}`}
-                  >
-                    <span className="font-medium">{variation.name}</span>
-                    <span className="text-gray-600">
-                      {variation.price_modifier > 0 ? `+${formatCurrency(variation.price_modifier)}` : ''}
-                      {variation.price_modifier < 0 ? formatCurrency(variation.price_modifier) : ''}
-                      {variation.price_modifier === 0 ? '' : ''}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        ))}
-
-        {product.addon_groups?.map((group) => (
-          <div key={group.id}>
-            <Separator />
-            <div className="py-3">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold text-gray-800">{group.name}</h3>
-                <div className="flex gap-1">
-                  {group.required && <Badge variant="destructive" className="text-xs">Obrigatório</Badge>}
-                  <Badge variant="outline" className="text-xs">Até {group.max_selections}</Badge>
-                </div>
-              </div>
-              <div className="space-y-2">
-                {group.addons?.map((addon) => (
-                  <button
-                    key={addon.id}
-                    disabled={!addon.is_available}
-                    onClick={() => handleAddonToggle(addon.id, addon.name, addon.price, group)}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-sm transition-colors ${
-                      isAddonSelected(addon.id)
-                        ? 'border-orange-500 bg-orange-50'
-                        : 'border-gray-200 hover:border-gray-300'
-                    } ${!addon.is_available ? 'opacity-40 cursor-not-allowed' : ''}`}
-                  >
-                    <span className="font-medium">{addon.name}</span>
-                    {addon.price > 0 && <span className="text-gray-600">+{formatCurrency(addon.price)}</span>}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        ))}
-
-        <Separator />
-        <div>
-          <h3 className="font-semibold text-gray-800 mb-2">Observações</h3>
-          <Textarea
-            placeholder="Ex: sem cebola, ponto da carne..."
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={2}
-            className="text-sm"
-          />
-        </div>
+        {product.description && (
+          <p className="text-gray-500 mt-2 text-sm leading-relaxed">{product.description}</p>
+        )}
+        <p className="text-xl font-bold text-orange-500 mt-3">
+          {formatCurrency(product.base_price)}
+        </p>
       </div>
 
-      <div className="sticky bottom-0 bg-white border-t px-4 py-4">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3 border rounded-lg px-3 py-2">
-            <button onClick={() => setQuantity((q) => Math.max(1, q - 1))}>
-              <Minus className="h-4 w-4" />
+      {/* Variações */}
+      {product.variation_groups?.map((group) => (
+        <section key={group.id} className="mt-3 bg-white px-5 py-5">
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="font-bold text-gray-900 text-base">{group.name}</h3>
+            {group.required ? (
+              <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide bg-orange-500 text-white rounded-full">
+                Obrigatório
+              </span>
+            ) : (
+              <span className="text-[11px] text-gray-400 font-medium">Opcional</span>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 mb-4">
+            {group.max_selections === 1 ? 'Escolha 1 opção' : `Escolha até ${group.max_selections}`}
+          </p>
+          <div className="space-y-2">
+            {group.variations?.map((variation) => {
+              const selected = isVariationSelected(variation.id)
+              return (
+                <button
+                  key={variation.id}
+                  disabled={!variation.is_available}
+                  onClick={() => handleVariationSelect(group, variation.id, variation.name, variation.price_modifier, variation.image_url)}
+                  className={`w-full min-h-[56px] flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-sm transition-all ${
+                    selected
+                      ? 'border-orange-500 bg-orange-50/60'
+                      : 'border-gray-100 bg-white hover:border-gray-200'
+                  } ${!variation.is_available ? 'opacity-40 cursor-not-allowed' : 'active:scale-[0.99]'}`}
+                >
+                  {variation.image_url ? (
+                    <div className="relative h-12 w-12 rounded-lg overflow-hidden shrink-0 bg-gray-100">
+                      <Image src={variation.image_url} alt={variation.name} fill sizes="48px" className="object-cover" />
+                    </div>
+                  ) : (
+                    <div className={`h-5 w-5 shrink-0 border-2 flex items-center justify-center ${
+                      selected ? 'border-orange-500 bg-orange-500' : 'border-gray-300 bg-white'
+                    } ${group.max_selections === 1 ? 'rounded-full' : 'rounded-md'}`}>
+                      {selected && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+                    </div>
+                  )}
+                  <span className="flex-1 text-left min-w-0">
+                    <span className="font-semibold text-gray-800 block leading-tight">{variation.name}</span>
+                    {variation.description && (
+                      <span className="text-xs text-gray-400 block mt-0.5 leading-snug">{variation.description}</span>
+                    )}
+                  </span>
+                  {group.max_selections === 1 ? (
+                    <span className="text-sm font-bold shrink-0 text-orange-500">
+                      {formatCurrency(product.base_price + variation.price_modifier)}
+                    </span>
+                  ) : (
+                    variation.price_modifier !== 0 && (
+                      <span className={`text-sm font-bold shrink-0 ${variation.price_modifier > 0 ? 'text-orange-500' : 'text-emerald-600'}`}>
+                        {variation.price_modifier > 0 ? '+' : ''}{formatCurrency(variation.price_modifier)}
+                      </span>
+                    )
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </section>
+      ))}
+
+      {/* Adicionais */}
+      {product.addon_groups?.map((group) => (
+        <section key={group.id} className="mt-3 bg-white px-5 py-5">
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="font-bold text-gray-900 text-base">{group.name}</h3>
+            {group.required ? (
+              <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide bg-orange-500 text-white rounded-full">
+                Obrigatório
+              </span>
+            ) : (
+              <span className="text-[11px] text-gray-400 font-medium">Opcional</span>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 mb-4">Até {group.max_selections}</p>
+          <div className="space-y-2">
+            {group.addons?.map((addon) => {
+              const selected = isAddonSelected(addon.id)
+              return (
+                <button
+                  key={addon.id}
+                  disabled={!addon.is_available}
+                  onClick={() => handleAddonToggle(addon.id, addon.name, addon.price, group)}
+                  className={`w-full min-h-[56px] flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-sm transition-all ${
+                    selected
+                      ? 'border-orange-500 bg-orange-50/60'
+                      : 'border-gray-100 bg-white hover:border-gray-200'
+                  } ${!addon.is_available ? 'opacity-40 cursor-not-allowed' : 'active:scale-[0.99]'}`}
+                >
+                  <div className={`h-5 w-5 rounded-md border-2 shrink-0 flex items-center justify-center ${
+                    selected ? 'border-orange-500 bg-orange-500' : 'border-gray-300 bg-white'
+                  }`}>
+                    {selected && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+                  </div>
+                  <span className="flex-1 font-semibold text-left text-gray-800">{addon.name}</span>
+                  {addon.price > 0 && (
+                    <span className="text-sm font-bold text-orange-500 shrink-0">
+                      +{formatCurrency(addon.price)}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </section>
+      ))}
+
+      {/* Observações */}
+      <section className="mt-3 bg-white px-5 py-5">
+        <h3 className="font-bold text-gray-900 text-base mb-1">Observações</h3>
+        <p className="text-xs text-gray-500 mb-3">Alguma preferência? Conta pra gente.</p>
+        <Textarea
+          placeholder="Ex: sem cebola, ponto da carne..."
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={3}
+          className="text-sm bg-gray-50 border-gray-200 rounded-xl focus-visible:ring-orange-500/30"
+        />
+      </section>
+
+      {/* CTA fixo */}
+      <div className={`fixed left-0 right-0 ${cartCount > 0 ? 'bottom-24' : 'bottom-0'} bg-white border-t border-gray-100 px-4 py-3 z-40 max-w-md mx-auto`}>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 bg-gray-100 rounded-xl h-12 px-1">
+            <button
+              onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+              aria-label="Diminuir"
+              className="h-10 w-10 flex items-center justify-center rounded-lg active:bg-gray-200 transition-colors"
+            >
+              <Minus className="h-4 w-4 text-gray-700" />
             </button>
-            <span className="font-bold w-5 text-center">{quantity}</span>
-            <button onClick={() => setQuantity((q) => q + 1)}>
-              <Plus className="h-4 w-4" />
+            <span className="font-bold w-6 text-center text-gray-900">{quantity}</span>
+            <button
+              onClick={() => setQuantity((q) => q + 1)}
+              aria-label="Aumentar"
+              className="h-10 w-10 flex items-center justify-center rounded-lg active:bg-gray-200 transition-colors"
+            >
+              <Plus className="h-4 w-4 text-gray-700" />
             </button>
           </div>
           <Button
             onClick={validateAndAdd}
             disabled={!product.is_available}
-            className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold"
+            className="flex-1 h-12 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl text-sm shadow-md shadow-orange-500/30"
           >
             Adicionar · {formatCurrency(totalPrice)}
           </Button>

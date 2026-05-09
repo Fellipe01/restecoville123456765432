@@ -1,15 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useCustomerStore } from '@/lib/store/customer'
 import { createClient } from '@/lib/supabase/client'
 import { Order } from '@/types'
-import { formatCurrency, getOrderStatusLabel, getOrderStatusColor } from '@/lib/utils'
+import { formatCurrency, getOrderStatusLabel, maskPhone } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
-import { ArrowLeft, MessageCircle, RefreshCw, Package } from 'lucide-react'
+import { ArrowLeft, MessageCircle, RefreshCw, Package, Bike, Store } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
@@ -18,12 +17,12 @@ interface Props {
   whatsappNumber: string | null
 }
 
-const STATUS_MESSAGE: Record<string, { icon: string; text: string; bg: string; text_color: string }> = {
-  recebido:   { icon: '📋', text: 'Recebemos seu pedido e já vamos começar!',         bg: 'bg-blue-50',   text_color: 'text-blue-700'   },
-  preparando: { icon: '👨‍🍳', text: 'Estamos preparando seu pedido com carinho.',        bg: 'bg-amber-50',  text_color: 'text-amber-700'  },
-  pronto:     { icon: '✅', text: 'Pedido pronto! Aguardando o entregador.',           bg: 'bg-green-50',  text_color: 'text-green-700'  },
-  saindo:     { icon: '🛵', text: 'O entregador acabou de sair com seu pedido!',       bg: 'bg-purple-50', text_color: 'text-purple-700' },
-  entregue:   { icon: '🎉', text: 'Pedido entregue. Bom apetite!',                    bg: 'bg-gray-50',   text_color: 'text-gray-600'   },
+const STATUS_MESSAGE: Record<string, { icon: string; text: string; bg: string; text_color: string; ring: string }> = {
+  recebido:   { icon: '📋', text: 'Recebemos seu pedido e já vamos começar!',         bg: 'bg-blue-50',   text_color: 'text-blue-700',   ring: 'ring-blue-200'   },
+  preparando: { icon: '👨‍🍳', text: 'Estamos preparando seu pedido com carinho.',        bg: 'bg-amber-50',  text_color: 'text-amber-700',  ring: 'ring-amber-200'  },
+  pronto:     { icon: '✅', text: 'Pedido pronto! Aguardando o entregador.',           bg: 'bg-emerald-50',text_color: 'text-emerald-700',ring: 'ring-emerald-200'},
+  saindo:     { icon: '🛵', text: 'O entregador acabou de sair com seu pedido!',       bg: 'bg-purple-50', text_color: 'text-purple-700', ring: 'ring-purple-200' },
+  entregue:   { icon: '🎉', text: 'Pedido entregue. Bom apetite!',                    bg: 'bg-gray-50',   text_color: 'text-gray-600',   ring: 'ring-gray-200'   },
 }
 
 function buildWhatsAppLink(whatsappNumber: string, orderNumber: number) {
@@ -39,7 +38,7 @@ export default function AcompanharClient({ restaurantId, whatsappNumber }: Props
   const [inputPhone, setInputPhone] = useState('')
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(false)
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
     if (!phone) return
@@ -50,12 +49,20 @@ export default function AcompanharClient({ restaurantId, whatsappNumber }: Props
 
   async function fetchOrders(p: string) {
     setLoading(true)
+    // Normaliza: mantém apenas dígitos — previne injeção no filtro PostgREST
     const digits = p.replace(/\D/g, '')
-    // Tenta match exato e também somente dígitos (formatos diferentes)
+    // Mínimo 10 dígitos (DDD + número) para números brasileiros
+    if (digits.length < 10 || digits.length > 15) {
+      setOrders([])
+      setLoading(false)
+      return
+    }
+    // Usa .in() com valores sanitizados em vez de .or() com interpolação livre
+    const phones = Array.from(new Set([p.trim(), digits]))
     const { data } = await supabase
       .from('orders')
       .select('*, items:order_items(*)')
-      .or(`customer_phone.eq.${p},customer_phone.eq.${digits}`)
+      .in('customer_phone', phones)
       .in('status', ['recebido', 'preparando', 'pronto', 'saindo'])
       .order('created_at', { ascending: false })
     setOrders(data ?? [])
@@ -90,150 +97,185 @@ export default function AcompanharClient({ restaurantId, whatsappNumber }: Props
   // ─── Tela de entrada ───────────────────────────────────────────────────────
   if (!phone) {
     return (
-      <div className="max-w-md mx-auto px-4 py-12">
-        <button onClick={() => router.push('/')} className="text-gray-400 hover:text-gray-600 mb-8" aria-label="Voltar">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-orange-50 mb-4">
-            <Package className="h-8 w-8 text-orange-500" />
+      <div className="max-w-md mx-auto bg-gray-50 min-h-screen">
+        <div className="bg-white border-b border-gray-100">
+          <div className="flex items-center gap-3 px-4 h-14">
+            <button
+              onClick={() => router.push('/')}
+              aria-label="Voltar"
+              className="h-10 w-10 -ml-2 flex items-center justify-center rounded-full active:bg-gray-100"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <h1 className="text-base font-bold text-gray-900">Acompanhar pedido</h1>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Acompanhar pedido</h1>
-          <p className="text-gray-500 mt-2 text-sm">
-            Digite o WhatsApp usado no pedido
-          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <Label>Número de WhatsApp</Label>
-            <Input
-              type="tel"
-              inputMode="numeric"
-              placeholder="(11) 99999-9999"
-              value={inputPhone}
-              onChange={(e) => setInputPhone(e.target.value)}
-              className="mt-1"
-              autoFocus
-            />
+        <div className="px-4 pt-10 pb-8">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-orange-400 to-orange-500 mb-5 shadow-lg shadow-orange-500/30">
+              <Package className="h-10 w-10 text-white" strokeWidth={2} />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900">Onde está meu pedido?</h2>
+            <p className="text-gray-500 mt-2 text-sm">
+              Digite o WhatsApp usado no pedido para ver o status em tempo real
+            </p>
           </div>
-          <Button
-            type="submit"
-            disabled={loading || !inputPhone.trim()}
-            className="w-full bg-orange-500 hover:bg-orange-600 font-bold py-6"
-          >
-            {loading ? 'Buscando...' : 'Buscar meus pedidos'}
-          </Button>
-        </form>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <Label className="text-xs text-gray-600 font-medium">Número de WhatsApp</Label>
+              <Input
+                type="tel"
+                inputMode="numeric"
+                placeholder="(11) 99999-9999"
+                value={inputPhone}
+                onChange={(e) => setInputPhone(maskPhone(e.target.value))}
+                className="mt-1.5 h-12 rounded-xl border-gray-200 bg-white focus-visible:ring-orange-500/30 text-base"
+                autoFocus
+              />
+            </div>
+            <Button
+              type="submit"
+              disabled={loading || !inputPhone.trim()}
+              className="w-full h-12 bg-orange-500 hover:bg-orange-600 font-bold rounded-2xl text-sm shadow-md shadow-orange-500/30"
+            >
+              {loading ? 'Buscando...' : 'Buscar meus pedidos'}
+            </Button>
+          </form>
+        </div>
       </div>
     )
   }
 
   // ─── Tela de pedidos ───────────────────────────────────────────────────────
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <button onClick={() => router.push('/')} aria-label="Voltar">
-            <ArrowLeft className="h-5 w-5 text-gray-400" />
-          </button>
-          <div>
-            <h1 className="font-bold text-gray-900">
-              {orders[0]?.customer_name ? `Olá, ${orders[0].customer_name.split(' ')[0]}!` : 'Meus pedidos'}
-            </h1>
-            <p className="text-xs text-gray-400">{phone} · atualiza a cada 30s</p>
+    <div className="max-w-md mx-auto bg-gray-50 min-h-screen pb-10">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-100">
+        <div className="flex items-center justify-between gap-3 px-4 h-14">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              onClick={() => router.push('/')}
+              aria-label="Voltar"
+              className="h-10 w-10 -ml-2 flex items-center justify-center rounded-full active:bg-gray-100 shrink-0"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div className="min-w-0">
+              <h1 className="font-bold text-gray-900 text-sm leading-tight truncate">
+                {orders[0]?.customer_name ? `Olá, ${orders[0].customer_name.split(' ')[0]}!` : 'Meus pedidos'}
+              </h1>
+              <p className="text-[11px] text-gray-400 truncate">{phone} · atualiza a cada 30s</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => fetchOrders(phone)}
+              disabled={loading}
+              aria-label="Atualizar"
+              className="h-10 w-10 flex items-center justify-center text-gray-500 hover:text-gray-700 active:bg-gray-100 rounded-full disabled:opacity-40"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => fetchOrders(phone)}
-            disabled={loading}
-            aria-label="Atualizar"
-            className="text-gray-400 hover:text-gray-600 disabled:opacity-40"
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
+        <div className="px-4 pb-3 -mt-1">
           <button
             onClick={handleClear}
-            className="text-xs text-gray-400 underline hover:text-gray-600"
+            className="text-[11px] text-gray-400 underline hover:text-gray-600"
           >
             Sou outra pessoa
           </button>
         </div>
       </div>
 
-      {loading ? (
-        <div className="text-center py-16 text-gray-400 text-sm">Buscando pedidos...</div>
+      {loading && orders.length === 0 ? (
+        <div className="text-center py-20">
+          <div className="inline-block h-8 w-8 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-3" />
+          <p className="text-gray-500 text-sm">Buscando pedidos...</p>
+        </div>
       ) : orders.length === 0 ? (
-        <div className="text-center py-16">
-          <p className="text-4xl mb-3">🎉</p>
-          <p className="font-semibold text-gray-700">Nenhum pedido em andamento</p>
-          <p className="text-sm text-gray-400 mt-1">
+        <div className="text-center py-20 px-4">
+          <p className="text-5xl mb-3">🍽️</p>
+          <p className="font-bold text-gray-800">Nenhum pedido em andamento</p>
+          <p className="text-sm text-gray-500 mt-1.5 max-w-xs mx-auto">
             Os pedidos aparecem aqui enquanto estão sendo preparados
           </p>
-          <Link href="/" className="mt-6 inline-block text-orange-500 text-sm hover:underline font-medium">
+          <Link
+            href="/"
+            className="mt-6 inline-block bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold rounded-xl px-5 h-11 leading-[2.75rem] shadow-md shadow-orange-500/30"
+          >
             Ver cardápio
           </Link>
         </div>
       ) : (
-        <div className="space-y-4">
-          {orders.map((order) => (
-            <div key={order.id} className="bg-white rounded-xl shadow-sm p-4 space-y-3">
-              {/* Cabeçalho do card */}
-              <div className="flex items-center justify-between">
-                <p className="font-bold text-gray-900">Pedido #{order.order_number}</p>
-                <Badge className={getOrderStatusColor(order.status)}>
-                  {getOrderStatusLabel(order.status)}
-                </Badge>
-              </div>
-
-              {/* Mensagem de status */}
-              {STATUS_MESSAGE[order.status] && (() => {
-                const msg = STATUS_MESSAGE[order.status]
-                return (
-                  <div className={`flex items-center gap-2 rounded-lg px-3 py-2 ${msg.bg}`}>
-                    <span className="text-lg">{msg.icon}</span>
-                    <p className={`text-sm font-medium ${msg.text_color}`}>{msg.text}</p>
+        <div className="px-4 pt-4 space-y-4">
+          {orders.map((order) => {
+            const msg = STATUS_MESSAGE[order.status]
+            return (
+              <div key={order.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
+                {/* Cabeçalho com gradiente */}
+                <div className="bg-gradient-to-br from-orange-500 to-orange-600 p-4 text-white">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wider font-bold text-white/80">Pedido</p>
+                      <p className="text-xl font-bold leading-tight">#{order.order_number}</p>
+                    </div>
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-white/20 backdrop-blur-sm rounded-full">
+                      <span className="h-1.5 w-1.5 bg-white rounded-full animate-pulse" />
+                      <span className="text-[11px] font-bold">{getOrderStatusLabel(order.status)}</span>
+                    </div>
                   </div>
-                )
-              })()}
+                </div>
 
-              {/* Tipo */}
-              <p className="text-xs text-gray-400">
-                {order.type === 'delivery' ? '🛵 Delivery' : '🏪 Retirada no balcão'}
-              </p>
+                <div className="p-4 space-y-3">
+                  {/* Mensagem de status */}
+                  {msg && (
+                    <div className={`flex items-start gap-3 rounded-xl px-3 py-3 ${msg.bg} ring-1 ${msg.ring}`}>
+                      <span className="text-2xl shrink-0">{msg.icon}</span>
+                      <p className={`text-sm font-semibold leading-tight ${msg.text_color}`}>{msg.text}</p>
+                    </div>
+                  )}
 
-              {/* Itens */}
-              <div className="text-sm text-gray-600 space-y-0.5 border-t pt-3">
-                {order.items?.map((item) => (
-                  <div key={item.id} className="flex justify-between">
-                    <span>{item.quantity}× {item.product_name}</span>
-                    <span className="text-gray-400">{formatCurrency(item.total_price)}</span>
+                  {/* Tipo */}
+                  <div className="flex items-center gap-1.5 text-[11px] text-gray-500 font-medium">
+                    {order.type === 'delivery' ? <Bike className="h-3.5 w-3.5" /> : <Store className="h-3.5 w-3.5" />}
+                    <span>{order.type === 'delivery' ? 'Delivery' : 'Retirada no balcão'}</span>
                   </div>
-                ))}
-              </div>
 
-              {/* Total */}
-              <div className="flex items-center justify-between border-t pt-2">
-                <span className="text-sm text-gray-500">Total</span>
-                <span className="font-bold text-orange-500">{formatCurrency(order.total)}</span>
-              </div>
+                  {/* Itens */}
+                  <div className="text-sm space-y-1 border-t border-gray-100 pt-3">
+                    {order.items?.map((item) => (
+                      <div key={item.id} className="flex justify-between">
+                        <span className="text-gray-600 truncate pr-2">{item.quantity}× {item.product_name}</span>
+                        <span className="text-gray-400 shrink-0">{formatCurrency(item.total_price)}</span>
+                      </div>
+                    ))}
+                  </div>
 
-              {/* Botão WhatsApp */}
-              {whatsappNumber && (
-                <a
-                  href={buildWhatsAppLink(whatsappNumber, order.order_number)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-3 rounded-xl text-sm transition-colors"
-                >
-                  <MessageCircle className="h-4 w-4" />
-                  Falar com suporte
-                </a>
-              )}
-            </div>
-          ))}
+                  {/* Total */}
+                  <div className="flex items-center justify-between border-t border-gray-100 pt-3">
+                    <span className="text-sm text-gray-500">Total</span>
+                    <span className="font-bold text-base text-orange-500">{formatCurrency(order.total)}</span>
+                  </div>
+
+                  {/* Botão WhatsApp */}
+                  {whatsappNumber && (
+                    <a
+                      href={buildWhatsAppLink(whatsappNumber, order.order_number)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 w-full bg-emerald-500 hover:bg-emerald-600 active:scale-[0.99] text-white font-bold h-11 rounded-xl text-sm transition-all shadow-md shadow-emerald-500/20"
+                    >
+                      <MessageCircle className="h-4 w-4" />
+                      Falar com suporte
+                    </a>
+                  )}
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

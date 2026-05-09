@@ -3,11 +3,11 @@
 import { useState, useMemo } from 'react'
 import { Restaurant, Category, Product } from '@/types'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import ProductCard from './product-card'
 import RestaurantHeader from './restaurant-header'
-import { Search, Package } from 'lucide-react'
+import { Search, Package, ChevronRight } from 'lucide-react'
 import Link from 'next/link'
+import Image from 'next/image'
 
 interface Props {
   restaurant: Restaurant | null
@@ -45,59 +45,86 @@ export default function HomeClient({ restaurant, categories, products, activeOrd
   }, [categories, filtered, activeCategory, search])
 
   return (
-    <div className="max-w-2xl mx-auto pb-24">
+    <div className="max-w-md mx-auto pb-28 bg-gray-50 min-h-screen">
       <RestaurantHeader restaurant={restaurant} activeOrdersCount={activeOrdersCount} />
 
+      {/* Banner acompanhar pedido */}
       <Link
         href="/acompanhar"
-        className="flex items-center justify-between px-4 py-3 bg-orange-50 hover:bg-orange-100 transition-colors"
+        className="mx-4 mt-3 flex items-center justify-between gap-3 px-4 py-3 bg-gradient-to-r from-orange-500 to-orange-600 rounded-2xl shadow-sm active:scale-[0.99] transition-transform"
       >
-        <span className="flex items-center gap-2 text-sm text-orange-700 font-medium">
-          <Package className="h-4 w-4" />
-          Acompanhar meu pedido
-        </span>
-        <span className="text-xs text-orange-400">›</span>
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
+            <Package className="h-4 w-4 text-white" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-white leading-tight">Acompanhar pedido</p>
+            <p className="text-[11px] text-white/85">Veja o status em tempo real</p>
+          </div>
+        </div>
+        <ChevronRight className="h-5 w-5 text-white/80" />
       </Link>
 
-      <div className="sticky top-0 z-10 bg-gray-50 px-4 pt-3 pb-2 space-y-3 shadow-sm">
+      {/* Sticky search + chips */}
+      <div className="sticky top-0 z-20 bg-gray-50/95 backdrop-blur-md px-4 pt-4 pb-3 mt-4 space-y-3">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input
             placeholder="Buscar no cardápio..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 bg-white"
+            className="pl-11 h-11 bg-white border-gray-200 rounded-xl shadow-sm focus-visible:ring-orange-500/30"
           />
         </div>
 
         {categories.length > 0 && (
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-            <Badge
-              variant={activeCategory === null ? 'default' : 'outline'}
-              className="cursor-pointer whitespace-nowrap"
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 scrollbar-hide">
+            <button
               onClick={() => setActiveCategory(null)}
+              className={`shrink-0 px-4 h-9 rounded-full text-xs font-semibold transition-all whitespace-nowrap ${
+                activeCategory === null
+                  ? 'bg-gray-900 text-white shadow-md'
+                  : 'bg-white text-gray-600 border border-gray-200'
+              }`}
             >
               Todos
-            </Badge>
+            </button>
             {categories.map((cat) => (
-              <Badge
+              <button
                 key={cat.id}
-                variant={activeCategory === cat.id ? 'default' : 'outline'}
-                className="cursor-pointer whitespace-nowrap"
                 onClick={() => setActiveCategory(activeCategory === cat.id ? null : cat.id)}
+                className={`shrink-0 flex items-center gap-2 pl-1.5 pr-4 h-9 rounded-full text-xs font-semibold transition-all whitespace-nowrap ${
+                  activeCategory === cat.id
+                    ? 'bg-gray-900 text-white shadow-md'
+                    : 'bg-white text-gray-600 border border-gray-200'
+                }`}
               >
+                {cat.image_url ? (
+                  <span className="relative h-7 w-7 rounded-full overflow-hidden bg-gray-100 shrink-0">
+                    <Image src={cat.image_url} alt={cat.name} fill sizes="28px" className="object-cover" />
+                  </span>
+                ) : (
+                  <span className="h-7 w-7 rounded-full bg-orange-100 flex items-center justify-center text-sm shrink-0">
+                    🍽️
+                  </span>
+                )}
                 {cat.name}
-              </Badge>
+              </button>
             ))}
           </div>
         )}
       </div>
 
-      <div className="px-4 space-y-8 mt-4">
+      <div className="px-4 space-y-7 mt-3">
         {grouped.map((group, idx) => (
           <section key={idx}>
             {group.category && (
-              <h2 className="text-lg font-bold mb-3 text-gray-800">{group.category.name}</h2>
+              <div className="flex items-center justify-between mb-3 px-1">
+                <h2 className="text-base font-bold text-gray-900">{group.category.name}</h2>
+                <span className="text-[11px] text-gray-400 font-medium">
+                  {group.items.length} {group.items.length === 1 ? 'item' : 'itens'}
+                </span>
+              </div>
             )}
             {group.items.length === 0 ? (
               <p className="text-gray-400 text-sm py-8 text-center">Nenhum item encontrado</p>
@@ -112,7 +139,11 @@ export default function HomeClient({ restaurant, categories, products, activeOrd
         ))}
 
         {filtered.length === 0 && search && (
-          <p className="text-center text-gray-400 py-16">Nenhum resultado para "{search}"</p>
+          <div className="text-center py-16">
+            <p className="text-5xl mb-3">🔎</p>
+            <p className="font-semibold text-gray-700">Nada encontrado</p>
+            <p className="text-sm text-gray-400 mt-1">Tente buscar com outras palavras</p>
+          </div>
         )}
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { checkRateLimit } from '@/lib/rate-limit'
+import { checkRateLimitAsync } from '@/lib/rate-limit'
 
 const itemSchema = z.object({
   product_id: z.string().uuid(),
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     request.headers.get('x-real-ip') ??
     request.headers.get('x-forwarded-for')?.split(',').at(-1)?.trim() ??
     'unknown'
-  const rateCheck = checkRateLimit(ip)
+  const rateCheck = await checkRateLimitAsync(ip, { namespace: 'pedidos' })
   if (!rateCheck.ok) {
     return NextResponse.json(
       { error: 'Muitas requisições. Tente novamente em instantes.' },
@@ -99,14 +99,18 @@ export async function POST(request: NextRequest) {
       for (const v of item.variations ?? []) {
         if (v.variation_id) {
           const dbVariation = variationMap.get(v.variation_id)
-          unitPrice += dbVariation ? Number(dbVariation.price_modifier) : v.price_modifier
+          if (!dbVariation) throw new Error(`Variação inválida: ${item.product_name}`)
+          if (!dbVariation.is_available) throw new Error(`Variação indisponível: ${item.product_name}`)
+          unitPrice += Number(dbVariation.price_modifier)
         }
       }
 
       for (const a of item.addons ?? []) {
         if (a.addon_id) {
           const dbAddon = addonMap.get(a.addon_id)
-          unitPrice += dbAddon ? Number(dbAddon.price) : a.price
+          if (!dbAddon) throw new Error(`Adicional inválido: ${item.product_name}`)
+          if (!dbAddon.is_available) throw new Error(`Adicional indisponível: ${item.product_name}`)
+          unitPrice += Number(dbAddon.price)
         }
       }
 
@@ -223,7 +227,7 @@ export async function POST(request: NextRequest) {
             order_item_id: orderItem.id,
             addon_id: a.addon_id,
             addon_name: a.addon_name,
-            price: a.price,
+            price: a.addon_id ? Number(addonMap.get(a.addon_id)!.price) : 0,
           }))
         )
       }
@@ -235,7 +239,7 @@ export async function POST(request: NextRequest) {
             variation_id: v.variation_id,
             variation_name: v.variation_name,
             group_name: v.group_name,
-            price_modifier: v.price_modifier,
+            price_modifier: v.variation_id ? Number(variationMap.get(v.variation_id)!.price_modifier) : 0,
           }))
         )
       }
@@ -269,7 +273,7 @@ export async function GET(request: NextRequest) {
   if (status) query = query.eq('status', status)
 
   const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return NextResponse.json({ error: 'Erro interno' }, { status: 500 })
 
   return NextResponse.json({ orders: data })
 }

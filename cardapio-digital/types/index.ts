@@ -63,6 +63,8 @@ export interface Variation {
   price_modifier: number
   is_available: boolean
   sort_order: number
+  image_url?: string | null
+  description?: string | null
 }
 
 export interface AddonGroup {
@@ -188,6 +190,7 @@ export interface CartItemVariation {
   group_name: string
   group_id: string
   price_modifier: number
+  image_url?: string | null
 }
 
 export interface CartItem {

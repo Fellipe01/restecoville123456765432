@@ -2,7 +2,7 @@
 
 import { useCartStore } from '@/lib/store/cart'
 import { formatCurrency } from '@/lib/utils'
-import { ShoppingCart } from 'lucide-react'
+import { ShoppingBag } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
@@ -15,19 +15,22 @@ export default function CartFab() {
   if (pathname === '/carrinho' || pathname === '/checkout') return null
 
   return (
-    <div className="fixed bottom-6 left-0 right-0 px-4 z-50 max-w-2xl mx-auto">
-      <Link href="/carrinho">
-        <div className="flex items-center justify-between bg-gray-900 text-white px-5 py-3.5 rounded-2xl shadow-2xl">
+    <div className="fixed bottom-4 left-0 right-0 px-4 z-50 max-w-md mx-auto pointer-events-none">
+      <Link href="/carrinho" className="block pointer-events-auto">
+        <div className="flex items-center justify-between bg-orange-500 text-white pl-4 pr-5 py-3.5 rounded-2xl shadow-2xl shadow-orange-500/40 active:scale-[0.98] transition-transform">
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <ShoppingCart className="h-5 w-5" />
-              <span className="absolute -top-2 -right-2 bg-orange-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold">
+            <div className="relative h-10 w-10 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-sm">
+              <ShoppingBag className="h-5 w-5" strokeWidth={2.5} />
+              <span className="absolute -top-1.5 -right-1.5 bg-white text-orange-500 text-[11px] rounded-full h-5 min-w-5 px-1 flex items-center justify-center font-bold shadow-md">
                 {count}
               </span>
             </div>
-            <span className="font-medium text-sm">Ver carrinho</span>
+            <div className="leading-tight">
+              <p className="text-[11px] font-medium text-white/85">Ver carrinho</p>
+              <p className="text-sm font-bold">{count} {count === 1 ? 'item' : 'itens'}</p>
+            </div>
           </div>
-          <span className="font-bold">{formatCurrency(getTotal())}</span>
+          <span className="font-bold text-base">{formatCurrency(getTotal())}</span>
         </div>
       </Link>
     </div>

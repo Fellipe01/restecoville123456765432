@@ -6,14 +6,13 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useCartStore } from '@/lib/store/cart'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, maskPhone } from '@/lib/utils'
 import { Restaurant, DeliveryZone, OrderType, PaymentMethod } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Separator } from '@/components/ui/separator'
-import { ArrowLeft, Loader2, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Loader2, ChevronRight, MapPin, Store, Bike, Check } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
@@ -178,100 +177,166 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
   }
 
   return (
-    <div className="max-w-2xl mx-auto bg-white min-h-screen">
+    <div className="max-w-md mx-auto bg-gray-50 min-h-screen pb-32">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-4 border-b sticky top-0 bg-white z-10">
-        <button onClick={goBack} aria-label="Voltar" className="p-1">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <div className="flex-1">
-          <h1 className="text-base font-bold leading-tight">Finalizar pedido</h1>
-          <p className="text-xs text-gray-400">{STEP_LABELS[step - 1]}</p>
+      <div className="sticky top-0 z-20 bg-white border-b border-gray-100">
+        <div className="flex items-center gap-3 px-4 h-14">
+          <button
+            onClick={goBack}
+            aria-label="Voltar"
+            className="h-10 w-10 -ml-2 flex items-center justify-center rounded-full active:bg-gray-100"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div className="flex-1">
+            <h1 className="text-base font-bold leading-tight text-gray-900">Finalizar pedido</h1>
+            <p className="text-[11px] text-gray-400">Etapa {step} de 3 · {STEP_LABELS[step - 1]}</p>
+          </div>
         </div>
-        <p className="text-xs text-gray-400 font-medium">{step}/3</p>
+
+        {/* Stepper visual */}
+        <div className="flex items-center gap-2 px-4 pb-3">
+          {STEP_LABELS.map((label, idx) => {
+            const s = idx + 1
+            const done = s < step
+            const active = s === step
+            return (
+              <div key={label} className="flex items-center flex-1">
+                <div className="flex flex-col items-center flex-1">
+                  <div
+                    className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-bold transition-all ${
+                      done
+                        ? 'bg-orange-500 text-white'
+                        : active
+                        ? 'bg-orange-500 text-white ring-4 ring-orange-100'
+                        : 'bg-gray-100 text-gray-400'
+                    }`}
+                  >
+                    {done ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : s}
+                  </div>
+                  <span
+                    className={`mt-1 text-[10px] font-semibold ${
+                      active ? 'text-orange-600' : done ? 'text-gray-700' : 'text-gray-400'
+                    }`}
+                  >
+                    {label}
+                  </span>
+                </div>
+                {s < 3 && (
+                  <div className={`h-0.5 flex-1 -mt-4 mx-1 rounded-full ${done ? 'bg-orange-500' : 'bg-gray-200'}`} />
+                )}
+              </div>
+            )
+          })}
+        </div>
       </div>
 
-      {/* Barra de progresso */}
-      <div className="flex gap-1 px-4 pt-3">
-        {[1, 2, 3].map((s) => (
-          <div
-            key={s}
-            className={`h-1 flex-1 rounded-full transition-colors duration-300 ${s <= step ? 'bg-orange-500' : 'bg-gray-200'}`}
-          />
-        ))}
-      </div>
-
-      <form onSubmit={handleSubmit(onSubmit)} className="px-4 py-5 space-y-5 pb-36">
+      <form onSubmit={handleSubmit(onSubmit)} className="px-4 py-4 space-y-4">
 
         {/* ── STEP 1: Dados + Entrega ── */}
         {step === 1 && (
-          <div className="space-y-5">
-            <div className="space-y-4">
-              <h2 className="font-semibold text-gray-800">Seus dados</h2>
+          <div className="space-y-4">
+            {/* Card de dados */}
+            <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+              <h2 className="font-bold text-gray-900 text-sm">Seus dados</h2>
               <div>
-                <Label>Nome</Label>
-                <Input {...register('customer_name')} placeholder="Seu nome" className="mt-1" />
+                <Label className="text-xs text-gray-600 font-medium">Nome</Label>
+                <Input
+                  {...register('customer_name')}
+                  placeholder="Seu nome"
+                  className="mt-1.5 h-11 rounded-xl border-gray-200 bg-gray-50 focus-visible:ring-orange-500/30"
+                />
                 {errors.customer_name && <p className="text-red-500 text-xs mt-1">{errors.customer_name.message}</p>}
               </div>
               <div>
-                <Label>WhatsApp</Label>
+                <Label className="text-xs text-gray-600 font-medium">WhatsApp</Label>
                 <Input
                   {...register('customer_phone')}
                   type="tel"
                   inputMode="numeric"
                   placeholder="(11) 99999-9999"
-                  className="mt-1"
+                  className="mt-1.5 h-11 rounded-xl border-gray-200 bg-gray-50 focus-visible:ring-orange-500/30"
+                  onChange={(e) => setValue('customer_phone', maskPhone(e.target.value), { shouldValidate: true })}
                 />
                 {errors.customer_phone && <p className="text-red-500 text-xs mt-1">{errors.customer_phone.message}</p>}
               </div>
             </div>
 
-            <Separator />
-
+            {/* Tipo de pedido */}
             {mode === 'ambos' && (
-              <div className="space-y-3">
-                <h2 className="font-semibold text-gray-800">Tipo de pedido</h2>
+              <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+                <h2 className="font-bold text-gray-900 text-sm">Como você quer receber?</h2>
                 <div className="grid grid-cols-2 gap-3">
-                  {(['balcao', 'delivery'] as const).map((type) => (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => setValue('order_type', type)}
-                      className={`py-3 rounded-xl border-2 font-medium text-sm transition-colors ${
-                        orderType === type ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-gray-200 text-gray-600'
-                      }`}
-                    >
-                      {type === 'balcao' ? '🏪 Retirar no balcão' : '🛵 Delivery'}
-                    </button>
-                  ))}
+                  {(['balcao', 'delivery'] as const).map((type) => {
+                    const selected = orderType === type
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setValue('order_type', type)}
+                        className={`min-h-[80px] py-3 px-3 rounded-xl border-2 text-sm transition-all flex flex-col items-center gap-1.5 ${
+                          selected
+                            ? 'border-orange-500 bg-orange-50 text-orange-700'
+                            : 'border-gray-100 bg-white text-gray-600'
+                        }`}
+                      >
+                        {type === 'balcao' ? (
+                          <Store className={`h-6 w-6 ${selected ? 'text-orange-500' : 'text-gray-400'}`} />
+                        ) : (
+                          <Bike className={`h-6 w-6 ${selected ? 'text-orange-500' : 'text-gray-400'}`} />
+                        )}
+                        <span className="font-bold">{type === 'balcao' ? 'Retirar' : 'Delivery'}</span>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             )}
 
             {orderType === 'balcao' && (
-              <div>
-                <Label>Número da mesa (opcional)</Label>
-                <Input {...register('table_number')} placeholder="Mesa 5..." className="mt-1" />
+              <div className="bg-white rounded-2xl shadow-sm p-4">
+                <Label className="text-xs text-gray-600 font-medium">Número da mesa <span className="text-gray-400">(opcional)</span></Label>
+                <Input
+                  {...register('table_number')}
+                  placeholder="Ex: Mesa 5"
+                  className="mt-1.5 h-11 rounded-xl border-gray-200 bg-gray-50 focus-visible:ring-orange-500/30"
+                />
               </div>
             )}
 
             {orderType === 'delivery' && (
-              <div className="space-y-3">
-                <h2 className="font-semibold text-gray-800">Local de entrega</h2>
-                <MapPicker onLocationSelect={handleLocationSelect} initialCoords={coords} />
-                <div>
-                  <Label>Endereço <span className="text-gray-400 font-normal text-xs">(preenchido pelo mapa)</span></Label>
-                  <Input {...register('address')} placeholder="Toque no mapa para preencher..." className="mt-1 bg-gray-50" />
+              <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-orange-500" />
+                  <h2 className="font-bold text-gray-900 text-sm">Local de entrega</h2>
+                </div>
+                <p className="text-xs text-gray-500 -mt-2">Toque no mapa para marcar o ponto exato</p>
+                <div className="rounded-xl overflow-hidden border border-gray-200">
+                  <MapPicker onLocationSelect={handleLocationSelect} initialCoords={coords} />
                 </div>
                 <div>
-                  <Label>Complemento <span className="text-gray-400 font-normal">(opcional)</span></Label>
-                  <Input {...register('complement')} placeholder="Ex: Apto 4, próximo ao mercado..." className="mt-1" />
+                  <Label className="text-xs text-gray-600 font-medium">
+                    Endereço <span className="text-gray-400 font-normal">(preenchido pelo mapa)</span>
+                  </Label>
+                  <Input
+                    {...register('address')}
+                    placeholder="Toque no mapa para preencher..."
+                    className="mt-1.5 h-11 rounded-xl border-gray-200 bg-gray-50 focus-visible:ring-orange-500/30"
+                  />
                 </div>
                 <div>
-                  <Label>Bairro <span className="text-red-400">*</span></Label>
+                  <Label className="text-xs text-gray-600 font-medium">Complemento <span className="text-gray-400 font-normal">(opcional)</span></Label>
+                  <Input
+                    {...register('complement')}
+                    placeholder="Ex: Apto 4, próximo ao mercado..."
+                    className="mt-1.5 h-11 rounded-xl border-gray-200 bg-gray-50 focus-visible:ring-orange-500/30"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-600 font-medium">Bairro <span className="text-orange-500">*</span></Label>
                   <select
                     {...register('delivery_zone_id')}
-                    className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500 cursor-pointer appearance-none"
+                    className="mt-1.5 w-full h-11 border border-gray-200 rounded-xl px-3 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500 cursor-pointer appearance-none"
                   >
                     <option value="">Selecione o bairro...</option>
                     {deliveryZones.map((zone) => (
@@ -288,77 +353,81 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
 
         {/* ── STEP 2: Pagamento ── */}
         {step === 2 && (
-          <div className="space-y-5">
-            {/* Resumo compacto */}
-            <div className="bg-orange-50 rounded-xl p-4 space-y-2 border border-orange-100">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Resumo do pedido</p>
+          <div className="space-y-4">
+            {/* Resumo */}
+            <div className="bg-white rounded-2xl shadow-sm p-4 space-y-2">
+              <p className="text-[11px] uppercase tracking-wider font-bold text-gray-400">Resumo</p>
               {items.map((item) => (
                 <div key={item.id} className="flex justify-between text-sm text-gray-600">
-                  <span>{item.quantity}× {item.product_name}</span>
-                  <span>{formatCurrency(item.unit_price * item.quantity)}</span>
+                  <span className="truncate pr-2">{item.quantity}× {item.product_name}</span>
+                  <span className="font-medium shrink-0">{formatCurrency(item.unit_price * item.quantity)}</span>
                 </div>
               ))}
               {deliveryFee > 0 && (
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-gray-500 pt-1">
                   <span>Taxa de entrega ({selectedZone?.name})</span>
                   <span>{formatCurrency(deliveryFee)}</span>
                 </div>
               )}
-              <div className="flex justify-between font-bold text-gray-900 pt-2 border-t border-orange-200">
-                <span>Total</span>
-                <span className="text-orange-600">{formatCurrency(total)}</span>
+              <div className="flex justify-between font-bold text-base pt-2 border-t border-gray-100">
+                <span className="text-gray-900">Total</span>
+                <span className="text-orange-500">{formatCurrency(total)}</span>
               </div>
             </div>
 
-            <Separator />
-
-            <div className="space-y-3">
-              <h2 className="font-semibold text-gray-800">Forma de pagamento</h2>
-              <p className="text-xs text-gray-400">Você paga {orderType === 'delivery' ? 'na entrega' : 'no balcão'}</p>
+            {/* Pagamento */}
+            <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+              <div>
+                <h2 className="font-bold text-gray-900 text-sm">Forma de pagamento</h2>
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  Você paga {orderType === 'delivery' ? 'na entrega' : 'no balcão'}
+                </p>
+              </div>
               <div className="grid grid-cols-3 gap-2">
-                {PAYMENT_OPTIONS.map(({ value, label, icon }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setValue('payment_method', value)}
-                    className={`py-4 rounded-xl border-2 font-medium text-sm transition-colors flex flex-col items-center gap-1.5 ${
-                      paymentMethod === value
-                        ? 'border-orange-500 bg-orange-50 text-orange-700'
-                        : 'border-gray-200 text-gray-600'
-                    }`}
-                  >
-                    <span className="text-2xl">{icon}</span>
-                    {label}
-                  </button>
-                ))}
+                {PAYMENT_OPTIONS.map(({ value, label, icon }) => {
+                  const selected = paymentMethod === value
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setValue('payment_method', value)}
+                      className={`min-h-[88px] py-3 rounded-xl border-2 text-xs transition-all flex flex-col items-center gap-1.5 ${
+                        selected
+                          ? 'border-orange-500 bg-orange-50 text-orange-700'
+                          : 'border-gray-100 bg-white text-gray-600'
+                      }`}
+                    >
+                      <span className="text-2xl">{icon}</span>
+                      <span className="font-bold">{label}</span>
+                    </button>
+                  )
+                })}
               </div>
 
               {paymentMethod === 'dinheiro' && (
-                <div>
-                  <Label>Troco para <span className="text-red-400">*</span></Label>
+                <div className="bg-orange-50 rounded-xl p-3 border border-orange-100">
+                  <Label className="text-xs text-gray-700 font-semibold">Troco para <span className="text-orange-500">*</span></Label>
                   <Input
                     {...register('troco')}
                     type="number"
                     step="1"
                     min={Math.ceil(total)}
                     placeholder={`Mín. R$ ${Math.ceil(total)}`}
-                    className="mt-1"
+                    className="mt-1.5 h-11 rounded-xl border-gray-200 bg-white focus-visible:ring-orange-500/30"
                   />
-                  <p className="text-xs text-gray-400 mt-1">Total do pedido: {formatCurrency(total)}</p>
+                  <p className="text-[11px] text-gray-500 mt-1.5">Total do pedido: {formatCurrency(total)}</p>
                   {errors.troco && <p className="text-red-500 text-xs mt-1">{errors.troco.message}</p>}
                 </div>
               )}
             </div>
 
-            <Separator />
-
-            <div>
-              <Label>Observações (opcional)</Label>
+            <div className="bg-white rounded-2xl shadow-sm p-4">
+              <Label className="text-xs text-gray-600 font-medium">Observações <span className="text-gray-400 font-normal">(opcional)</span></Label>
               <Textarea
                 {...register('notes')}
                 placeholder="Alguma observação geral..."
                 rows={3}
-                className="mt-1 text-sm"
+                className="mt-1.5 text-sm rounded-xl border-gray-200 bg-gray-50 focus-visible:ring-orange-500/30"
               />
             </div>
           </div>
@@ -367,81 +436,88 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
         {/* ── STEP 3: Confirmar ── */}
         {step === 3 && (
           <div className="space-y-4">
-            <h2 className="font-semibold text-gray-800">Confirmar pedido</h2>
-
-            <div className="bg-gray-50 rounded-xl p-4 space-y-2.5 text-sm divide-y divide-gray-100">
-              <div className="flex justify-between pb-2">
-                <span className="text-gray-500">Nome</span>
-                <span className="font-medium text-gray-800">{watch('customer_name')}</span>
-              </div>
-              <div className="flex justify-between py-2">
-                <span className="text-gray-500">WhatsApp</span>
-                <span className="font-medium text-gray-800">{watch('customer_phone')}</span>
-              </div>
-              <div className="flex justify-between py-2">
-                <span className="text-gray-500">Tipo</span>
-                <span className="font-medium text-gray-800">{orderType === 'delivery' ? '🛵 Delivery' : '🏪 Balcão'}</span>
-              </div>
-              {orderType === 'delivery' && (
-                <>
-                  {selectedZone && (
-                    <div className="flex justify-between py-2">
-                      <span className="text-gray-500">Bairro</span>
-                      <span className="font-medium text-gray-800">{selectedZone.name}</span>
-                    </div>
-                  )}
-                  {watch('address') && (
-                    <div className="flex justify-between py-2">
-                      <span className="text-gray-500">Endereço</span>
-                      <span className="font-medium text-gray-800 text-right max-w-[60%]">
-                        {watch('address')}{watch('complement') ? `, ${watch('complement')}` : ''}
-                      </span>
-                    </div>
-                  )}
-                  {coords && (
-                    <div className="flex justify-between py-2">
-                      <span className="text-gray-500">Localização</span>
-                      <span className="text-green-600 text-xs font-medium">📍 Pin no mapa salvo</span>
-                    </div>
-                  )}
-                </>
-              )}
-              <div className="flex justify-between pt-2">
-                <span className="text-gray-500">Pagamento</span>
-                <span className="font-medium text-gray-800">
-                  {PAYMENT_OPTIONS.find((p) => p.value === paymentMethod)?.label}
-                  {paymentMethod === 'dinheiro' && watch('troco') ? ` · troco p/ R$ ${watch('troco')}` : ''}
-                </span>
+            <div className="bg-white rounded-2xl shadow-sm p-4">
+              <h2 className="font-bold text-gray-900 text-sm mb-3">Dados do pedido</h2>
+              <div className="space-y-2 text-sm divide-y divide-gray-100">
+                <div className="flex justify-between pb-2">
+                  <span className="text-gray-500">Nome</span>
+                  <span className="font-semibold text-gray-900">{watch('customer_name')}</span>
+                </div>
+                <div className="flex justify-between py-2">
+                  <span className="text-gray-500">WhatsApp</span>
+                  <span className="font-semibold text-gray-900">{watch('customer_phone')}</span>
+                </div>
+                <div className="flex justify-between py-2">
+                  <span className="text-gray-500">Tipo</span>
+                  <span className="font-semibold text-gray-900 flex items-center gap-1">
+                    {orderType === 'delivery' ? <><Bike className="h-3.5 w-3.5" /> Delivery</> : <><Store className="h-3.5 w-3.5" /> Balcão</>}
+                  </span>
+                </div>
+                {orderType === 'delivery' && (
+                  <>
+                    {selectedZone && (
+                      <div className="flex justify-between py-2">
+                        <span className="text-gray-500">Bairro</span>
+                        <span className="font-semibold text-gray-900">{selectedZone.name}</span>
+                      </div>
+                    )}
+                    {watch('address') && (
+                      <div className="flex justify-between gap-3 py-2">
+                        <span className="text-gray-500 shrink-0">Endereço</span>
+                        <span className="font-semibold text-gray-900 text-right">
+                          {watch('address')}{watch('complement') ? `, ${watch('complement')}` : ''}
+                        </span>
+                      </div>
+                    )}
+                    {coords && (
+                      <div className="flex justify-between py-2">
+                        <span className="text-gray-500">Localização</span>
+                        <span className="text-emerald-600 text-xs font-bold flex items-center gap-1">
+                          <MapPin className="h-3 w-3" /> Pin salvo
+                        </span>
+                      </div>
+                    )}
+                  </>
+                )}
+                <div className="flex justify-between pt-2">
+                  <span className="text-gray-500">Pagamento</span>
+                  <span className="font-semibold text-gray-900 text-right">
+                    {PAYMENT_OPTIONS.find((p) => p.value === paymentMethod)?.label}
+                    {paymentMethod === 'dinheiro' && watch('troco') ? ` · troco p/ R$ ${watch('troco')}` : ''}
+                  </span>
+                </div>
               </div>
             </div>
 
-            <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+            <div className="bg-white rounded-2xl shadow-sm p-4 space-y-2">
+              <h2 className="font-bold text-gray-900 text-sm mb-2">Itens</h2>
               {items.map((item) => (
                 <div key={item.id} className="flex justify-between text-sm text-gray-600">
-                  <span>{item.quantity}× {item.product_name}</span>
-                  <span>{formatCurrency(item.unit_price * item.quantity)}</span>
+                  <span className="truncate pr-2">{item.quantity}× {item.product_name}</span>
+                  <span className="font-medium shrink-0">{formatCurrency(item.unit_price * item.quantity)}</span>
                 </div>
               ))}
-              <Separator />
-              <div className="flex justify-between text-sm text-gray-500">
-                <span>Subtotal</span>
-                <span>{formatCurrency(subtotal)}</span>
-              </div>
-              {deliveryFee > 0 && (
+              <div className="border-t border-gray-100 pt-2 mt-2 space-y-1">
                 <div className="flex justify-between text-sm text-gray-500">
-                  <span>Taxa de entrega</span>
-                  <span>{formatCurrency(deliveryFee)}</span>
+                  <span>Subtotal</span>
+                  <span>{formatCurrency(subtotal)}</span>
                 </div>
-              )}
-              <div className="flex justify-between font-bold text-base pt-1">
-                <span>Total</span>
-                <span className="text-orange-500">{formatCurrency(total)}</span>
+                {deliveryFee > 0 && (
+                  <div className="flex justify-between text-sm text-gray-500">
+                    <span>Taxa de entrega</span>
+                    <span>{formatCurrency(deliveryFee)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-bold text-base pt-1">
+                  <span>Total</span>
+                  <span className="text-orange-500">{formatCurrency(total)}</span>
+                </div>
               </div>
             </div>
 
             {watch('notes') && (
-              <div className="bg-yellow-50 border border-yellow-100 rounded-xl px-4 py-3">
-                <p className="text-xs text-gray-500 mb-1">Observações</p>
+              <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4">
+                <p className="text-[11px] uppercase tracking-wider font-bold text-amber-700 mb-1">Observações</p>
                 <p className="text-sm text-gray-700">{watch('notes')}</p>
               </div>
             )}
@@ -450,14 +526,22 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
       </form>
 
       {/* CTA sticky */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t px-4 py-4 max-w-2xl mx-auto">
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-4 py-3 max-w-md mx-auto">
         {step === 1 && (
-          <Button type="button" onClick={goToStep2} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-6 text-base">
+          <Button
+            type="button"
+            onClick={goToStep2}
+            className="w-full h-12 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-2xl text-sm shadow-md shadow-orange-500/30"
+          >
             Continuar <ChevronRight className="h-5 w-5 ml-1" />
           </Button>
         )}
         {step === 2 && (
-          <Button type="button" onClick={goToStep3} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-6 text-base">
+          <Button
+            type="button"
+            onClick={goToStep3}
+            className="w-full h-12 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-2xl text-sm shadow-md shadow-orange-500/30"
+          >
             Revisar pedido <ChevronRight className="h-5 w-5 ml-1" />
           </Button>
         )}
@@ -466,7 +550,7 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
             type="submit"
             disabled={loading}
             onClick={handleSubmit(onSubmit)}
-            className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-6 text-base"
+            className="w-full h-12 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-2xl text-sm shadow-md shadow-orange-500/30"
           >
             {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : `Fazer pedido · ${formatCurrency(total)}`}
           </Button>

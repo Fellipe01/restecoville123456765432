@@ -2,7 +2,7 @@
 
 import { Product } from '@/types'
 import { formatCurrency } from '@/lib/utils'
-import { Badge } from '@/components/ui/badge'
+import { Plus } from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
 
@@ -12,27 +12,63 @@ interface Props {
 
 export default function ProductCard({ product }: Props) {
   const card = (
-    <div className={`flex gap-3 bg-white rounded-xl p-3 shadow-sm transition-shadow ${product.is_available ? 'hover:shadow-md cursor-pointer' : 'opacity-60 cursor-default'}`}>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="font-semibold text-gray-900 text-sm leading-snug">{product.name}</h3>
-          {!product.is_available && (
-            <Badge variant="secondary" className="text-xs shrink-0">Indisponível</Badge>
-          )}
+    <div
+      className={`group relative bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 transition-all ${
+        product.is_available
+          ? 'active:scale-[0.98] hover:shadow-md cursor-pointer'
+          : 'opacity-60 cursor-default'
+      }`}
+    >
+      <div className="flex gap-3 p-3">
+        <div className="flex-1 min-w-0 flex flex-col justify-between py-1">
+          <div>
+            <h3 className="font-bold text-gray-900 text-[15px] leading-snug line-clamp-2">
+              {product.name}
+            </h3>
+            {product.description && (
+              <p className="text-xs text-gray-500 mt-1 line-clamp-2 leading-relaxed">
+                {product.description}
+              </p>
+            )}
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <p className="font-bold text-base text-orange-500">
+              {formatCurrency(product.base_price)}
+            </p>
+            {!product.is_available && (
+              <span className="px-2 py-0.5 text-[10px] font-semibold bg-gray-100 text-gray-500 rounded-full">
+                Indisponível
+              </span>
+            )}
+          </div>
         </div>
-        {product.description && (
-          <p className="text-xs text-gray-500 mt-1 line-clamp-2">{product.description}</p>
-        )}
-        <p className="mt-2 font-bold text-sm text-orange-700">
-          {formatCurrency(product.base_price)}
-        </p>
-      </div>
 
-      {product.image_url && (
-        <div className="relative h-24 w-24 rounded-lg overflow-hidden shrink-0">
-          <Image src={product.image_url} alt={product.name} fill sizes="96px" className="object-cover" />
-        </div>
-      )}
+        {product.image_url ? (
+          <div className="relative h-28 w-28 rounded-xl overflow-hidden shrink-0 bg-gray-100">
+            <Image
+              src={product.image_url}
+              alt={product.name}
+              fill
+              sizes="112px"
+              className="object-cover"
+            />
+            {product.is_available && (
+              <div className="absolute bottom-1.5 right-1.5 h-7 w-7 rounded-full bg-orange-500 text-white flex items-center justify-center shadow-md">
+                <Plus className="h-4 w-4" strokeWidth={3} />
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="relative h-28 w-28 rounded-xl overflow-hidden shrink-0 bg-gradient-to-br from-orange-50 to-orange-100 flex items-center justify-center">
+            <span className="text-3xl">🍽️</span>
+            {product.is_available && (
+              <div className="absolute bottom-1.5 right-1.5 h-7 w-7 rounded-full bg-orange-500 text-white flex items-center justify-center shadow-md">
+                <Plus className="h-4 w-4" strokeWidth={3} />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 
