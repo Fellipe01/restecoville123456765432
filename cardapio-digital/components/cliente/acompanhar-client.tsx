@@ -254,10 +254,22 @@ export default function AcompanharClient({ restaurantId, whatsappNumber }: Props
                     ))}
                   </div>
 
-                  {/* Total */}
-                  <div className="flex items-center justify-between border-t border-gray-100 pt-3">
-                    <span className="text-sm text-gray-500">Total</span>
-                    <span className="font-bold text-base text-orange-500">{formatCurrency(order.total)}</span>
+                  {/* Totais */}
+                  <div className="border-t border-gray-100 pt-3 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-500">Subtotal</span>
+                      <span className="text-sm text-gray-500">{formatCurrency(order.subtotal)}</span>
+                    </div>
+                    {order.type === 'delivery' && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-500 flex items-center gap-1"><Bike className="h-3.5 w-3.5" /> Taxa de entrega</span>
+                        <span className="text-sm text-gray-500">{order.delivery_fee > 0 ? formatCurrency(order.delivery_fee) : 'Grátis'}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between pt-1 border-t border-gray-100">
+                      <span className="text-sm font-bold text-gray-900">Total</span>
+                      <span className="font-bold text-base text-orange-500">{formatCurrency(order.total)}</span>
+                    </div>
                   </div>
 
                   {/* Botão WhatsApp */}
