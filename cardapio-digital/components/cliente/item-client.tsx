@@ -175,6 +175,37 @@ export default function ItemClient({ product }: Props) {
             {group.max_selections === 1 ? 'Escolha 1 opção' : `Escolha até ${group.max_selections}`}
           </p>
           <div className="space-y-2">
+            {/* Opção base do produto (só em grupos de escolha única) */}
+            {group.max_selections === 1 && (() => {
+              const noneSelected = !selectedVariations.some((v) => v.group_id === group.id)
+              return (
+                <button
+                  onClick={() => setSelectedVariations((prev) => prev.filter((v) => v.group_id !== group.id))}
+                  className={`w-full min-h-[56px] flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-sm transition-all active:scale-[0.99] ${
+                    noneSelected ? 'border-orange-500 bg-orange-50/60' : 'border-gray-100 bg-white hover:border-gray-200'
+                  }`}
+                >
+                  {product.image_url ? (
+                    <div className="relative h-12 w-12 rounded-lg overflow-hidden shrink-0 bg-gray-100">
+                      <Image src={product.image_url} alt={product.name} fill sizes="48px" className="object-cover" />
+                    </div>
+                  ) : (
+                    <div className={`h-5 w-5 shrink-0 border-2 rounded-full flex items-center justify-center ${
+                      noneSelected ? 'border-orange-500 bg-orange-500' : 'border-gray-300 bg-white'
+                    }`}>
+                      {noneSelected && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+                    </div>
+                  )}
+                  <span className="flex-1 text-left min-w-0">
+                    <span className="font-semibold text-gray-800 block leading-tight">{product.name}</span>
+                  </span>
+                  <span className="text-sm font-bold shrink-0 text-orange-500">
+                    {formatCurrency(product.base_price)}
+                  </span>
+                </button>
+              )
+            })()}
+
             {group.variations?.map((variation) => {
               const selected = isVariationSelected(variation.id)
               return (
@@ -296,6 +327,31 @@ export default function ItemClient({ product }: Props) {
             <p className="text-sm text-gray-500 mb-4">Quer adicionar outro sabor também?</p>
 
             <div className="space-y-2 mb-4 max-h-52 overflow-y-auto">
+              {/* Opção base do produto */}
+              {(() => {
+                const isBase = !selectedVariations.some((sv) => sv.group_id === saborGroup.id)
+                return (
+                  <button
+                    onClick={() => { setSelectedVariations((prev) => prev.filter((v) => v.group_id !== saborGroup.id)); setShowOutroSabor(false) }}
+                    disabled={isBase}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-sm transition-all ${
+                      isBase ? 'border-orange-200 bg-orange-50 opacity-50 cursor-not-allowed' : 'border-gray-100 hover:border-orange-300 active:scale-[0.99]'
+                    }`}
+                  >
+                    {product.image_url ? (
+                      <div className="relative h-10 w-10 rounded-lg overflow-hidden shrink-0 bg-gray-100">
+                        <Image src={product.image_url} alt={product.name} fill sizes="40px" className="object-cover" />
+                      </div>
+                    ) : null}
+                    <span className="flex-1 font-semibold text-left text-gray-800">
+                      {product.name}
+                      {isBase && <span className="ml-2 text-[10px] text-orange-400 font-normal">já no carrinho</span>}
+                    </span>
+                    <span className="text-sm font-bold text-orange-500 shrink-0">{formatCurrency(product.base_price)}</span>
+                  </button>
+                )
+              })()}
+
               {saborGroup.variations?.filter((v) => v.is_available).map((variation) => {
                 const isCurrent = selectedVariations.some((sv) => sv.variation_id === variation.id)
                 return (
