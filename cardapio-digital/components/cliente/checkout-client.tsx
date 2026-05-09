@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { ArrowLeft, Loader2, ChevronRight, MapPin, Store, Bike, Check, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Loader2, ChevronRight, MapPin, Store, Bike, Check, AlertTriangle, Banknote, Wallet, CreditCard } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
@@ -36,10 +36,10 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>
 
-const PAYMENT_OPTIONS: { value: PaymentMethod; label: string; icon: string }[] = [
-  { value: 'dinheiro', label: 'Dinheiro', icon: '💵' },
-  { value: 'debito',   label: 'Débito',   icon: '💳' },
-  { value: 'credito',  label: 'Crédito',  icon: '💳' },
+const PAYMENT_OPTIONS: { value: PaymentMethod; label: string; Icon: React.ElementType }[] = [
+  { value: 'dinheiro', label: 'Dinheiro', Icon: Banknote },
+  { value: 'debito',   label: 'Débito',   Icon: Wallet },
+  { value: 'credito',  label: 'Crédito',  Icon: CreditCard },
 ]
 
 const STEP_LABELS = ['Entrega', 'Pagamento', 'Confirmar']
@@ -407,7 +407,7 @@ export default function CheckoutClient({ restaurant }: Props) {
                 </p>
               </div>
               <div className="grid grid-cols-3 gap-2">
-                {PAYMENT_OPTIONS.map(({ value, label, icon }) => {
+                {PAYMENT_OPTIONS.map(({ value, label, Icon }) => {
                   const selected = paymentMethod === value
                   return (
                     <button
@@ -420,7 +420,7 @@ export default function CheckoutClient({ restaurant }: Props) {
                           : 'border-gray-100 bg-white text-gray-600'
                       }`}
                     >
-                      <span className="text-2xl">{icon}</span>
+                      <Icon className={`h-7 w-7 ${selected ? 'text-orange-500' : 'text-gray-400'}`} />
                       <span className="font-bold">{label}</span>
                     </button>
                   )
