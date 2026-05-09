@@ -39,6 +39,7 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
   const [groups, setGroups] = useState<VariationGroup[]>([])
   const [loadingGroups, setLoadingGroups] = useState(false)
   const [uploadingVarId, setUploadingVarId] = useState<{ groupId: string; variationId: string } | null>(null)
+  const [productPickerGroupId, setProductPickerGroupId] = useState<string | null>(null)
 
   function openCreate() {
     setEditing(null)
@@ -151,6 +152,30 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
     if (data) {
       setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, variations: [...(g.variations ?? []), data as Variation] } : g))
     }
+  }
+
+  async function importFromProduct(groupId: string, product: Product) {
+    const group = groups.find((g) => g.id === groupId)
+    const basePrice = variacoesProduct?.base_price ?? 0
+    const modifier = product.base_price - basePrice
+    const { data, error } = await supabase
+      .from('variations')
+      .insert({
+        group_id: groupId,
+        name: product.name,
+        price_modifier: modifier,
+        image_url: product.image_url ?? null,
+        is_available: true,
+        sort_order: group?.variations?.length ?? 0,
+      })
+      .select()
+      .single()
+    if (error) { toast.error('Erro ao importar: ' + error.message); return }
+    if (data) {
+      setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, variations: [...(g.variations ?? []), data as Variation] } : g))
+      toast.success(`"${product.name}" importado!`)
+    }
+    setProductPickerGroupId(null)
   }
 
   async function updateVariation(groupId: string, variationId: string, updates: Partial<Variation>) {
@@ -362,12 +387,20 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
                       </div>
                     )})}
 
-                    <button
-                      onClick={() => addVariation(group.id)}
-                      className="text-xs text-orange-500 hover:text-orange-600 flex items-center gap-1 mt-1"
-                    >
-                      <Plus className="h-3 w-3" /> Adicionar opção
-                    </button>
+                    <div className="flex items-center gap-3 mt-1">
+                      <button
+                        onClick={() => addVariation(group.id)}
+                        className="text-xs text-orange-500 hover:text-orange-600 flex items-center gap-1"
+                      >
+                        <Plus className="h-3 w-3" /> Adicionar opção
+                      </button>
+                      <button
+                        onClick={() => setProductPickerGroupId(group.id)}
+                        className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1"
+                      >
+                        <Layers className="h-3 w-3" /> Importar produto
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -377,6 +410,47 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: picker de produto para importar como variação */}
+      <Dialog open={!!productPickerGroupId} onOpenChange={(o) => { if (!o) setProductPickerGroupId(null) }}>
+        <DialogContent className="max-w-sm max-h-[70vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Importar produto como opção</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-gray-500 -mt-2 mb-3">Selecione um produto para preencher nome, preço e imagem automaticamente.</p>
+          <div className="space-y-2">
+            {products
+              .filter((p) => p.id !== variacoesProduct?.id && p.is_available)
+              .map((p) => {
+                const modifier = p.base_price - (variacoesProduct?.base_price ?? 0)
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => importFromProduct(productPickerGroupId!, p)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-gray-100 hover:border-orange-400 hover:bg-orange-50 transition-all text-left"
+                  >
+                    {p.image_url ? (
+                      <div className="relative h-10 w-10 rounded-lg overflow-hidden shrink-0 bg-gray-100">
+                        <Image src={p.image_url} alt={p.name} fill sizes="40px" className="object-cover" />
+                      </div>
+                    ) : (
+                      <div className="h-10 w-10 rounded-lg bg-gray-100 shrink-0 flex items-center justify-center text-gray-400 text-xs">
+                        {p.name.charAt(0)}
+                      </div>
+                    )}
+                    <span className="flex-1 min-w-0">
+                      <span className="font-semibold text-sm text-gray-800 block truncate">{p.name}</span>
+                      <span className="text-xs text-gray-400">{formatCurrency(p.base_price)}</span>
+                    </span>
+                    <span className={`text-xs font-bold shrink-0 ${modifier === 0 ? 'text-gray-400' : modifier > 0 ? 'text-orange-500' : 'text-emerald-600'}`}>
+                      {modifier === 0 ? 'mesmo preço' : modifier > 0 ? `+${formatCurrency(modifier)}` : formatCurrency(modifier)}
+                    </span>
+                  </button>
+                )
+              })}
+          </div>
         </DialogContent>
       </Dialog>
 
