@@ -65,10 +65,21 @@ export async function POST(request: NextRequest) {
 
     const data = parsed.data
 
-    const { data: restaurant } = await supabase
-      .from('restaurants')
-      .select('id, lat, lng, delivery_base_radius_km, delivery_base_fee, delivery_extra_fee_per_km, delivery_max_radius_km')
-      .single()
+    // Tenta buscar com colunas de raio; se a migration ainda não foi aplicada, cai no fallback
+    let restaurant: { id: string; lat: number | null; lng: number | null; delivery_base_radius_km: number | null; delivery_base_fee: number | null; delivery_extra_fee_per_km: number | null; delivery_max_radius_km: number | null } | null = null
+    {
+      const { data, error } = await supabase
+        .from('restaurants')
+        .select('id, lat, lng, delivery_base_radius_km, delivery_base_fee, delivery_extra_fee_per_km, delivery_max_radius_km')
+        .single()
+      if (!error && data) {
+        restaurant = data
+      } else {
+        // Colunas de raio ainda não existem — migration pendente
+        const { data: basic } = await supabase.from('restaurants').select('id, lat, lng').single()
+        if (basic) restaurant = { ...basic, delivery_base_radius_km: null, delivery_base_fee: null, delivery_extra_fee_per_km: null, delivery_max_radius_km: null }
+      }
+    }
     if (!restaurant) return NextResponse.json({ error: 'Restaurante não encontrado' }, { status: 404 })
 
     // Recalcular preços no servidor
@@ -126,24 +137,26 @@ export async function POST(request: NextRequest) {
     // Calcular taxa de entrega por raio no servidor
     let deliveryFee = 0
     if (data.type === 'delivery') {
-      if (data.latitude == null || data.longitude == null) {
-        return NextResponse.json({ error: 'Coordenadas de entrega obrigatórias' }, { status: 400 })
-      }
       const restLat = restaurant.lat
       const restLng = restaurant.lng
-      if (restLat == null || restLng == null) {
-        return NextResponse.json({ error: 'Localização do restaurante não configurada' }, { status: 500 })
-      }
-      const baseRadius = Number(restaurant.delivery_base_radius_km ?? 3)
-      const baseFee = Number(restaurant.delivery_base_fee ?? 5)
-      const extraPerKm = Number(restaurant.delivery_extra_fee_per_km ?? 2)
-      const maxRadius = Number(restaurant.delivery_max_radius_km ?? 15)
+      const hasMigration = restaurant.delivery_base_radius_km != null
 
-      const distKm = haversineKm(restLat, restLng, data.latitude, data.longitude)
-      if (distKm > maxRadius) {
-        return NextResponse.json({ error: 'Endereço fora da área de entrega' }, { status: 400 })
+      if (restLat != null && restLng != null && data.latitude != null && data.longitude != null && hasMigration) {
+        // Validação completa por raio
+        const baseRadius = Number(restaurant.delivery_base_radius_km)
+        const baseFee = Number(restaurant.delivery_base_fee ?? 0)
+        const extraPerKm = Number(restaurant.delivery_extra_fee_per_km ?? 0)
+        const maxRadius = Number(restaurant.delivery_max_radius_km ?? 99)
+
+        const distKm = haversineKm(restLat, restLng, data.latitude, data.longitude)
+        if (distKm > maxRadius) {
+          return NextResponse.json({ error: 'Endereço fora da área de entrega' }, { status: 400 })
+        }
+        deliveryFee = calcDeliveryFee(distKm, baseRadius, baseFee, extraPerKm)
+      } else {
+        // Migration ainda não aplicada ou restaurante sem coordenadas — aceita taxa do cliente
+        deliveryFee = data.delivery_fee
       }
-      deliveryFee = calcDeliveryFee(distKm, baseRadius, baseFee, extraPerKm)
     }
 
     const serverTotal = serverSubtotal + deliveryFee
