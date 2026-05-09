@@ -1,12 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { Product, VariationGroup, AddonGroup, CartItemVariation, CartItemAddon } from '@/types'
+import { Product, VariationGroup, AddonGroup, CartItemVariation, CartItemAddon, Variation } from '@/types'
 import { useCartStore, calculateItemPrice } from '@/lib/store/cart'
 import { formatCurrency } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { ArrowLeft, Minus, Plus, Check } from 'lucide-react'
+import { ArrowLeft, Minus, Plus, Check, ShoppingBag } from 'lucide-react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -24,6 +24,10 @@ export default function ItemClient({ product }: Props) {
   const [notes, setNotes] = useState('')
   const [selectedVariations, setSelectedVariations] = useState<CartItemVariation[]>([])
   const [selectedAddons, setSelectedAddons] = useState<CartItemAddon[]>([])
+  const [showOutroSabor, setShowOutroSabor] = useState(false)
+
+  // Grupo de variação único (max_selections=1) que permite sugestão de outro sabor
+  const saborGroup = product.variation_groups?.find((g) => g.max_selections === 1 && (g.variations?.filter((v) => v.is_available).length ?? 0) > 1) ?? null
 
   const unitPrice = calculateItemPrice(product.base_price, selectedVariations, selectedAddons)
   const totalPrice = unitPrice * quantity
@@ -98,7 +102,19 @@ export default function ItemClient({ product }: Props) {
       variations: selectedVariations,
     })
 
-    router.push('/carrinho')
+    if (saborGroup) {
+      setShowOutroSabor(true)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } else {
+      router.push('/carrinho')
+    }
+  }
+
+  function escolherOutroSabor(variation: Variation) {
+    if (!saborGroup) return
+    handleVariationSelect(saborGroup, variation.id, variation.name, variation.price_modifier, variation.image_url)
+    setShowOutroSabor(false)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   return (
@@ -265,6 +281,61 @@ export default function ItemClient({ product }: Props) {
           className="text-sm bg-gray-50 border-gray-200 rounded-xl focus-visible:ring-orange-500/30"
         />
       </section>
+
+      {/* Painel "Outro sabor?" */}
+      {showOutroSabor && saborGroup && (
+        <div className="fixed inset-0 z-50 flex items-end max-w-md mx-auto left-0 right-0">
+          <div className="absolute inset-0 bg-black/40" onClick={() => router.push('/carrinho')} />
+          <div className="relative w-full bg-white rounded-t-3xl px-5 pt-5 pb-8 shadow-2xl">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="h-7 w-7 rounded-full bg-green-100 flex items-center justify-center">
+                <Check className="h-4 w-4 text-green-600" strokeWidth={3} />
+              </div>
+              <p className="font-bold text-gray-900 text-base">Adicionado!</p>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">Quer adicionar outro sabor também?</p>
+
+            <div className="space-y-2 mb-4 max-h-52 overflow-y-auto">
+              {saborGroup.variations?.filter((v) => v.is_available).map((variation) => {
+                const isCurrent = selectedVariations.some((sv) => sv.variation_id === variation.id)
+                return (
+                  <button
+                    key={variation.id}
+                    onClick={() => escolherOutroSabor(variation)}
+                    disabled={isCurrent}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-sm transition-all ${
+                      isCurrent
+                        ? 'border-orange-200 bg-orange-50 opacity-50 cursor-not-allowed'
+                        : 'border-gray-100 hover:border-orange-300 active:scale-[0.99]'
+                    }`}
+                  >
+                    {variation.image_url ? (
+                      <div className="relative h-10 w-10 rounded-lg overflow-hidden shrink-0 bg-gray-100">
+                        <Image src={variation.image_url} alt={variation.name} fill sizes="40px" className="object-cover" />
+                      </div>
+                    ) : null}
+                    <span className="flex-1 font-semibold text-left text-gray-800">
+                      {variation.name}
+                      {isCurrent && <span className="ml-2 text-[10px] text-orange-400 font-normal">já no carrinho</span>}
+                    </span>
+                    <span className="text-sm font-bold text-orange-500 shrink-0">
+                      {formatCurrency(product.base_price + variation.price_modifier)}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <button
+              onClick={() => router.push('/carrinho')}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-sm transition-colors"
+            >
+              <ShoppingBag className="h-4 w-4" />
+              Ver carrinho
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* CTA fixo */}
       <div className={`fixed left-0 right-0 ${cartCount > 0 ? 'bottom-24' : 'bottom-0'} bg-white border-t border-gray-100 px-4 py-3 z-40 max-w-md mx-auto`}>
