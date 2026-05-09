@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { Loader2, LocateFixed } from 'lucide-react'
+import { toast } from 'sonner'
 import 'leaflet/dist/leaflet.css'
 
 const GURUPI: [number, number] = [-11.7342, -49.0864]
@@ -113,8 +114,12 @@ export default function MapPicker({ onLocationSelect, initialCoords }: Props) {
         mapRef.current.setView([lat, lng], 17)
         await geocode(lat, lng)
       }
-    } catch {
-      // silently ignore — user just moves pin manually
+    } catch (err: any) {
+      if (err?.code === 1) {
+        toast.error('Permissão de localização negada. Marque o ponto no mapa manualmente.')
+      } else {
+        toast.error('Não foi possível obter sua localização. Marque no mapa.')
+      }
     } finally {
       setLocating(false)
     }
