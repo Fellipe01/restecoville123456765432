@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -15,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ArrowLeft, Loader2, ChevronRight, MapPin, Store, Bike, Check, AlertTriangle, Banknote, Wallet, CreditCard } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { trackMetaInitiateCheckout } from '@/lib/meta-pixel'
 
 const MapPicker = dynamic(() => import('@/components/cliente/map-picker'), { ssr: false })
 
@@ -77,6 +78,14 @@ export default function CheckoutClient({ restaurant }: Props) {
   const paymentMethod = watch('payment_method')
   const subtotal = getSubtotal()
   const total = subtotal + (orderType === 'delivery' ? deliveryFee : 0)
+
+  const firedCheckout = useRef(false)
+  useEffect(() => {
+    if (!firedCheckout.current && subtotal > 0) {
+      trackMetaInitiateCheckout(subtotal)
+      firedCheckout.current = true
+    }
+  }, [subtotal])
 
   useEffect(() => {
     if (!coords || orderType !== 'delivery') return

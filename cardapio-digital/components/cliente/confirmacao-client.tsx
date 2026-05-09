@@ -7,6 +7,7 @@ import { buttonVariants } from '@/components/ui/button'
 import { CheckCircle2, MessageCircle, Package, Home } from 'lucide-react'
 import Link from 'next/link'
 import { trackPurchase } from '@/lib/gtag'
+import { trackMetaPurchase } from '@/lib/meta-pixel'
 import { createClient } from '@/lib/supabase/client'
 
 interface Props {
@@ -21,6 +22,13 @@ export default function ConfirmacaoClient({ order, whatsapp }: Props) {
       order.id,
       order.total,
       (order.items ?? []).map((i) => ({ name: i.product_name, price: i.unit_price, quantity: i.quantity }))
+    )
+
+    // Meta Pixel purchase event
+    trackMetaPurchase(
+      order.id,
+      order.total,
+      (order.items ?? []).map((i) => ({ name: i.product_name, quantity: i.quantity }))
     )
 
     // Marca sessão como convertida

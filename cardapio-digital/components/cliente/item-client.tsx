@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Product, VariationGroup, AddonGroup, CartItemVariation, CartItemAddon, Variation } from '@/types'
 import { useCartStore, calculateItemPrice } from '@/lib/store/cart'
 import { formatCurrency } from '@/lib/utils'
@@ -10,6 +10,7 @@ import { ArrowLeft, Minus, Plus, Check, ShoppingBag } from 'lucide-react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { trackMetaViewContent } from '@/lib/meta-pixel'
 
 interface Props {
   product: Product
@@ -19,6 +20,10 @@ export default function ItemClient({ product }: Props) {
   const router = useRouter()
   const { addItem, getItemCount } = useCartStore()
   const cartCount = getItemCount()
+
+  useEffect(() => {
+    trackMetaViewContent(product.name, product.base_price)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const [quantity, setQuantity] = useState(1)
   const [notes, setNotes] = useState('')
