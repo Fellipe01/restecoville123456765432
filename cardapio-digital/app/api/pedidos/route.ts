@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { checkRateLimitAsync } from '@/lib/rate-limit'
@@ -210,7 +211,7 @@ export async function POST(request: NextRequest) {
 
     if (!rpcError) {
       if (data.latitude != null && data.longitude != null) {
-        await supabase
+        await createAdminClient()
           .from('orders')
           .update({ latitude: data.latitude, longitude: data.longitude })
           .eq('id', rpcResult.id)

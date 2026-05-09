@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { toast } from 'sonner'
 
 function buildMapsUrl(address: string, city: string, lat?: number | null, lng?: number | null) {
-  if (lat && lng) return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
+  if (lat && lng) return `https://maps.google.com/?q=${lat},${lng}`
   const query = city ? `${address}, ${city}` : address
   return `https://maps.google.com/?q=${encodeURIComponent(query)}`
 }
