@@ -1,4 +1,5 @@
 import CartFab from '@/components/cliente/cart-fab'
+import SessionTracker from '@/components/cliente/session-tracker'
 import { createClient } from '@/lib/supabase/server'
 import { BusinessHours } from '@/types'
 
@@ -23,6 +24,7 @@ export default async function ClienteLayout({ children }: { children: React.Reac
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {restaurant?.id && <SessionTracker restaurantId={restaurant.id} />}
       {children}
       <CartFab isOpen={isOpen} />
     </div>

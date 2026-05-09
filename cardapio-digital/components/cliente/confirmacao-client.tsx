@@ -1,10 +1,13 @@
 'use client'
 
+import { useEffect } from 'react'
 import { Order } from '@/types'
 import { formatCurrency, buildWhatsAppMessage, cn, getPaymentLabel } from '@/lib/utils'
 import { buttonVariants } from '@/components/ui/button'
 import { CheckCircle2, MessageCircle, Package, Home } from 'lucide-react'
 import Link from 'next/link'
+import { trackPurchase } from '@/lib/gtag'
+import { createClient } from '@/lib/supabase/client'
 
 interface Props {
   order: Order
@@ -12,6 +15,25 @@ interface Props {
 }
 
 export default function ConfirmacaoClient({ order, whatsapp }: Props) {
+  useEffect(() => {
+    // GA4 purchase event
+    trackPurchase(
+      order.id,
+      order.total,
+      (order.items ?? []).map((i) => ({ name: i.product_name, price: i.unit_price, quantity: i.quantity }))
+    )
+
+    // Marca sessão como convertida
+    const sessionId = typeof window !== 'undefined' ? window.__sessionId : null
+    if (sessionId) {
+      const supabase = createClient()
+      supabase
+        .from('page_sessions')
+        .update({ converted: true, converted_at: new Date().toISOString() })
+        .eq('session_id', sessionId)
+        .then(() => {})
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const items = order.items ?? []
   const waMessage = buildWhatsAppMessage(
     order.order_number,

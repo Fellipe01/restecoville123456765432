@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google'
 import './globals.css'
 import { Toaster } from '@/components/ui/sonner'
 import QueryProvider from '@/components/shared/query-provider'
+import GoogleAnalytics from '@/components/shared/google-analytics'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -15,6 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="pt-BR" className="h-full">
       <body className={`${inter.className} h-full antialiased`}>
+        <GoogleAnalytics />
         <QueryProvider>
           {children}
           <Toaster position="top-center" richColors />
