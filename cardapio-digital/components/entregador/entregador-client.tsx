@@ -9,6 +9,7 @@ import { DeliveryGroup } from '@/lib/grouping'
 import { formatCurrency, getPaymentLabel } from '@/lib/utils'
 import { MapPin, Phone, MessageCircle, CheckCircle2, LogOut, Bike, Package, ArrowRightLeft, Navigation } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 
 function buildMapsUrl(address: string, city: string, lat?: number | null, lng?: number | null) {
@@ -28,6 +29,7 @@ export default function EntregadorClient({ city }: { city: string }) {
   const [transferModal, setTransferModal] = useState<Order | null>(null)
   const [deliverers, setDeliverers] = useState<Deliverer[]>([])
   const [transferring, setTransferring] = useState(false)
+  const [pendingConfirm, setPendingConfirm] = useState<Order | null>(null)
   const supabase = createClient()
 
   function authHeaders() {
@@ -330,7 +332,7 @@ export default function EntregadorClient({ city }: { city: string }) {
                   </div>
 
                   <Button
-                    onClick={() => confirmarEntrega(order)}
+                    onClick={() => setPendingConfirm(order)}
                     disabled={confirming === order.id}
                     className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 text-base rounded-xl"
                   >
@@ -389,6 +391,28 @@ export default function EntregadorClient({ city }: { city: string }) {
           </div>
         </div>
       )}
+
+      <Dialog open={!!pendingConfirm} onOpenChange={(o) => { if (!o) setPendingConfirm(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Confirmar entrega</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            Entregou o pedido <strong>#{pendingConfirm?.order_number}</strong> para <strong>{pendingConfirm?.customer_name}</strong>?
+          </p>
+          <div className="flex gap-2 pt-2">
+            <Button variant="outline" className="flex-1" onClick={() => setPendingConfirm(null)}>
+              Não, foi engano
+            </Button>
+            <Button
+              className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+              onClick={() => { const o = pendingConfirm; setPendingConfirm(null); if (o) confirmarEntrega(o) }}
+            >
+              Sim, entregue!
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

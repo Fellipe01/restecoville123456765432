@@ -5,6 +5,7 @@ import { Order, OrderStatus } from '@/types'
 import { formatCurrency, getPaymentLabel } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import Link from 'next/link'
@@ -40,8 +41,9 @@ function getAdvanceLabel(order: Order): string {
   return 'Avançar →'
 }
 
-function elapsed(createdAt: string) {
-  const diff = Math.floor((Date.now() - new Date(createdAt).getTime()) / 60000)
+function elapsed(createdAt: string, endAt?: string) {
+  const end = endAt ? new Date(endAt).getTime() : Date.now()
+  const diff = Math.floor((end - new Date(createdAt).getTime()) / 60000)
   if (diff < 60) return `${diff}min`
   return `${Math.floor(diff / 60)}h${diff % 60 > 0 ? `${diff % 60}min` : ''}`
 }
@@ -60,6 +62,7 @@ interface Props {
 
 export default function PedidosClient({ initialOrders }: Props) {
   const [orders, setOrders] = useState<Order[]>(initialOrders)
+  const [pendingDeliver, setPendingDeliver] = useState<Order | null>(null)
   const supabase = createClient()
 
   async function fetchAll() {
@@ -107,10 +110,23 @@ export default function PedidosClient({ initialOrders }: Props) {
   async function advanceStatus(order: Order) {
     const next = getNextStatus(order)
     if (!next) return
+    if (next === 'entregue') { setPendingDeliver(order); return }
     setOrders((prev) => prev.map((o) => o.id === order.id ? { ...o, status: next } : o))
     const { error } = await supabase.from('orders').update({ status: next }).eq('id', order.id)
     if (error) {
       toast.error('Erro ao atualizar — rode a migration 006 no Supabase')
+      setOrders((prev) => prev.map((o) => o.id === order.id ? { ...o, status: order.status } : o))
+    }
+  }
+
+  async function confirmDeliver() {
+    const order = pendingDeliver
+    if (!order) return
+    setPendingDeliver(null)
+    setOrders((prev) => prev.map((o) => o.id === order.id ? { ...o, status: 'entregue' } : o))
+    const { error } = await supabase.from('orders').update({ status: 'entregue' }).eq('id', order.id)
+    if (error) {
+      toast.error('Erro ao marcar como entregue')
       setOrders((prev) => prev.map((o) => o.id === order.id ? { ...o, status: order.status } : o))
     }
   }
@@ -174,7 +190,7 @@ export default function PedidosClient({ initialOrders }: Props) {
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-gray-900">#{order.order_number}</span>
                         <span className={`flex items-center gap-0.5 text-xs ${elapsedColor(order.created_at, status)}`}>
-                          <Clock className="h-3 w-3" />{elapsed(order.created_at)}
+                          <Clock className="h-3 w-3" />{elapsed(order.created_at, status === 'entregue' ? order.updated_at : undefined)}
                         </span>
                       </div>
 
@@ -263,6 +279,25 @@ export default function PedidosClient({ initialOrders }: Props) {
           })}
         </div>
       </div>
+
+      <Dialog open={!!pendingDeliver} onOpenChange={(o) => { if (!o) setPendingDeliver(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Confirmar entrega</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            Marcar pedido <strong>#{pendingDeliver?.order_number}</strong> de <strong>{pendingDeliver?.customer_name}</strong> como entregue?
+          </p>
+          <div className="flex gap-2 pt-2">
+            <Button variant="outline" className="flex-1" onClick={() => setPendingDeliver(null)}>
+              Não, foi engano
+            </Button>
+            <Button className="flex-1 bg-green-600 hover:bg-green-700 text-white" onClick={confirmDeliver}>
+              Sim, confirmar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
