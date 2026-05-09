@@ -177,12 +177,23 @@ export default function PedidoPage() {
               </div>
             ))}
           </div>
-          <div className="border-t border-gray-100 mt-3 pt-3 flex justify-between font-bold text-base">
-            <span className="text-gray-900">Total</span>
-            <span className="text-orange-500">{formatCurrency(order.total)}</span>
+          <div className="border-t border-gray-100 mt-3 pt-3 space-y-1.5">
+            <div className="flex justify-between text-sm text-gray-500">
+              <span>Subtotal</span>
+              <span>{formatCurrency(order.subtotal)}</span>
+            </div>
+            {isDelivery && (
+              <div className="flex justify-between text-sm text-gray-500">
+                <span className="flex items-center gap-1"><Bike className="h-3.5 w-3.5" /> Taxa de entrega</span>
+                <span>{order.delivery_fee > 0 ? formatCurrency(order.delivery_fee) : 'Grátis'}</span>
+              </div>
+            )}
+            <div className="flex justify-between font-bold text-base pt-1 border-t border-gray-100">
+              <span className="text-gray-900">Total</span>
+              <span className="text-orange-500">{formatCurrency(order.total)}</span>
+            </div>
           </div>
           <div className="mt-2 flex items-center gap-1.5 text-[11px] text-gray-400">
-            {isDelivery ? <Bike className="h-3 w-3" /> : null}
             <span>Pagamento {isDelivery ? 'na entrega' : 'no balcão'}</span>
           </div>
         </div>
