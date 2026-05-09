@@ -21,7 +21,7 @@ interface CartStore {
   clearCart: () => void
   setCustomer: (name: string, phone: string) => void
   setOrderType: (type: OrderType) => void
-  setDelivery: (zone_id: string, fee: number, address: string) => void
+  setDelivery: (fee: number, address: string) => void
   setTableNumber: (table: string) => void
   setNotes: (notes: string) => void
   setPayment: (method: PaymentMethod, troco: string) => void
@@ -67,13 +67,13 @@ export const useCartStore = create<CartStore>()(
         }))
       },
 
-      clearCart: () => set({ items: [], notes: '', table_number: '', address: '', delivery_zone_id: '', delivery_fee: 0, payment_method: 'dinheiro', troco: '' }),
+      clearCart: () => set({ items: [], notes: '', table_number: '', address: '', delivery_fee: 0, payment_method: 'dinheiro', troco: '' }),
 
       setCustomer: (name, phone) => set({ customer_name: name, customer_phone: phone }),
 
       setOrderType: (type) => set({ order_type: type }),
 
-      setDelivery: (zone_id, fee, address) => set({ delivery_zone_id: zone_id, delivery_fee: fee, address }),
+      setDelivery: (fee, address) => set({ delivery_fee: fee, address }),
 
       setTableNumber: (table) => set({ table_number: table }),
 

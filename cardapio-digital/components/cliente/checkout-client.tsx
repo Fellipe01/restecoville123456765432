@@ -1,18 +1,18 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useCartStore } from '@/lib/store/cart'
-import { formatCurrency, maskPhone } from '@/lib/utils'
-import { Restaurant, DeliveryZone, OrderType, PaymentMethod } from '@/types'
+import { formatCurrency, maskPhone, haversineKm, calcDeliveryFee } from '@/lib/utils'
+import { Restaurant, OrderType, PaymentMethod } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { ArrowLeft, Loader2, ChevronRight, MapPin, Store, Bike, Check } from 'lucide-react'
+import { ArrowLeft, Loader2, ChevronRight, MapPin, Store, Bike, Check, AlertTriangle } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
@@ -25,7 +25,6 @@ const schema = z.object({
   table_number: z.string().optional(),
   address: z.string().optional(),
   complement: z.string().optional(),
-  delivery_zone_id: z.string().optional(),
   notes: z.string().optional(),
   payment_method: z.enum(['dinheiro', 'debito', 'credito']),
   troco: z.string().optional(),
@@ -47,16 +46,17 @@ const STEP_LABELS = ['Entrega', 'Pagamento', 'Confirmar']
 
 interface Props {
   restaurant: Restaurant | null
-  deliveryZones: DeliveryZone[]
 }
 
-export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
+export default function CheckoutClient({ restaurant }: Props) {
   const router = useRouter()
   const { items, getSubtotal, setCustomer, setDelivery, setOrderType, setTableNumber, setNotes, setPayment, clearCart } = useCartStore()
   const cartStore = useCartStore()
   const [loading, setLoading] = useState(false)
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
+  const [deliveryFee, setDeliveryFee] = useState(0)
+  const [outOfRange, setOutOfRange] = useState(false)
 
   const mode = restaurant?.operation_mode ?? 'ambos'
   const defaultType: OrderType = mode === 'delivery' ? 'delivery' : 'balcao'
@@ -75,11 +75,30 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
 
   const orderType = watch('order_type')
   const paymentMethod = watch('payment_method')
-  const deliveryZoneId = watch('delivery_zone_id')
-  const selectedZone = deliveryZones.find((z) => z.id === deliveryZoneId)
-  const deliveryFee = selectedZone?.fee ?? 0
   const subtotal = getSubtotal()
-  const total = subtotal + deliveryFee
+  const total = subtotal + (orderType === 'delivery' ? deliveryFee : 0)
+
+  useEffect(() => {
+    if (!coords || orderType !== 'delivery') return
+    const restLat = restaurant?.lat
+    const restLng = restaurant?.lng
+    if (restLat == null || restLng == null) return
+
+    const baseRadius = restaurant?.delivery_base_radius_km ?? 3
+    const baseFee = restaurant?.delivery_base_fee ?? 5
+    const extraPerKm = restaurant?.delivery_extra_fee_per_km ?? 2
+    const maxRadius = restaurant?.delivery_max_radius_km ?? 15
+
+    const dist = haversineKm(restLat, restLng, coords.lat, coords.lng)
+
+    if (dist > maxRadius) {
+      setOutOfRange(true)
+      setDeliveryFee(0)
+    } else {
+      setOutOfRange(false)
+      setDeliveryFee(calcDeliveryFee(dist, baseRadius, baseFee, extraPerKm))
+    }
+  }, [coords, orderType, restaurant])
 
   function handleLocationSelect(lat: number, lng: number, address: string) {
     setCoords({ lat, lng })
@@ -92,10 +111,7 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
 
     if (orderType === 'delivery') {
       if (!coords) { toast.error('Marque o local de entrega no mapa'); return }
-      if (!deliveryZoneId) { toast.error('Selecione o bairro de entrega'); return }
-      if (selectedZone && selectedZone.minimum_order > 0 && subtotal < selectedZone.minimum_order) {
-        toast.error(`Pedido mínimo para ${selectedZone.name}: ${formatCurrency(selectedZone.minimum_order)}`); return
-      }
+      if (outOfRange) { toast.error('Endereço fora da área de entrega'); return }
     }
 
     window.scrollTo(0, 0)
@@ -125,10 +141,12 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
       ? `${data.address?.trim()}, ${data.complement.trim()}`
       : data.address?.trim()
 
+    const fee = orderType === 'delivery' ? deliveryFee : 0
+
     setLoading(true)
     try {
       setCustomer(data.customer_name, data.customer_phone)
-      if (data.order_type === 'delivery') setDelivery(data.delivery_zone_id!, deliveryFee, fullAddress ?? '')
+      if (data.order_type === 'delivery') setDelivery(fee, fullAddress ?? '')
       setOrderType(data.order_type)
       setTableNumber(data.table_number ?? '')
       setNotes(data.notes ?? '')
@@ -143,10 +161,9 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
           type: data.order_type,
           table_number: data.table_number,
           address: fullAddress,
-          delivery_zone_id: data.delivery_zone_id,
-          delivery_fee: deliveryFee,
+          delivery_fee: fee,
           subtotal,
-          total,
+          total: subtotal + fee,
           notes: data.notes,
           payment_method: data.payment_method,
           troco: data.payment_method === 'dinheiro' && data.troco ? parseFloat(data.troco) : null,
@@ -314,6 +331,26 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
                 <div className="rounded-xl overflow-hidden border border-gray-200">
                   <MapPicker onLocationSelect={handleLocationSelect} initialCoords={coords} />
                 </div>
+
+                {/* Fee preview */}
+                {coords && (
+                  outOfRange ? (
+                    <div className="flex items-center gap-2 bg-red-50 border border-red-100 rounded-xl px-3 py-2.5">
+                      <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
+                      <p className="text-xs text-red-700 font-medium">
+                        Endereço fora da área de entrega (máximo {restaurant?.delivery_max_radius_km ?? 15} km)
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between bg-orange-50 border border-orange-100 rounded-xl px-3 py-2.5">
+                      <span className="text-xs text-orange-700 font-medium">Taxa de entrega</span>
+                      <span className="text-sm font-bold text-orange-600">
+                        {deliveryFee === 0 ? 'Grátis' : formatCurrency(deliveryFee)}
+                      </span>
+                    </div>
+                  )
+                )}
+
                 <div>
                   <Label className="text-xs text-gray-600 font-medium">
                     Endereço <span className="text-gray-400 font-normal">(preenchido pelo mapa)</span>
@@ -332,20 +369,6 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
                     className="mt-1.5 h-11 rounded-xl border-gray-200 bg-gray-50 focus-visible:ring-orange-500/30"
                   />
                 </div>
-                <div>
-                  <Label className="text-xs text-gray-600 font-medium">Bairro <span className="text-orange-500">*</span></Label>
-                  <select
-                    {...register('delivery_zone_id')}
-                    className="mt-1.5 w-full h-11 border border-gray-200 rounded-xl px-3 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500 cursor-pointer appearance-none"
-                  >
-                    <option value="">Selecione o bairro...</option>
-                    {deliveryZones.map((zone) => (
-                      <option key={zone.id} value={zone.id}>
-                        {zone.name} — {formatCurrency(zone.fee)} (~{zone.estimated_minutes} min)
-                      </option>
-                    ))}
-                  </select>
-                </div>
               </div>
             )}
           </div>
@@ -363,9 +386,9 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
                   <span className="font-medium shrink-0">{formatCurrency(item.unit_price * item.quantity)}</span>
                 </div>
               ))}
-              {deliveryFee > 0 && (
+              {orderType === 'delivery' && deliveryFee > 0 && (
                 <div className="flex justify-between text-xs text-gray-500 pt-1">
-                  <span>Taxa de entrega ({selectedZone?.name})</span>
+                  <span>Taxa de entrega</span>
                   <span>{formatCurrency(deliveryFee)}</span>
                 </div>
               )}
@@ -455,12 +478,6 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
                 </div>
                 {orderType === 'delivery' && (
                   <>
-                    {selectedZone && (
-                      <div className="flex justify-between py-2">
-                        <span className="text-gray-500">Bairro</span>
-                        <span className="font-semibold text-gray-900">{selectedZone.name}</span>
-                      </div>
-                    )}
                     {watch('address') && (
                       <div className="flex justify-between gap-3 py-2">
                         <span className="text-gray-500 shrink-0">Endereço</span>
@@ -502,7 +519,7 @@ export default function CheckoutClient({ restaurant, deliveryZones }: Props) {
                   <span>Subtotal</span>
                   <span>{formatCurrency(subtotal)}</span>
                 </div>
-                {deliveryFee > 0 && (
+                {orderType === 'delivery' && deliveryFee > 0 && (
                   <div className="flex justify-between text-sm text-gray-500">
                     <span>Taxa de entrega</span>
                     <span>{formatCurrency(deliveryFee)}</span>

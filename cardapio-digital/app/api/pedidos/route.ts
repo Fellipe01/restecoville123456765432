@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { checkRateLimitAsync } from '@/lib/rate-limit'
+import { haversineKm, calcDeliveryFee } from '@/lib/utils'
 
 const itemSchema = z.object({
   product_id: z.string().uuid(),
@@ -29,7 +30,6 @@ const orderSchema = z.object({
   type: z.enum(['balcao', 'delivery']),
   table_number: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
-  delivery_zone_id: z.string().uuid().optional().nullable(),
   delivery_fee: z.number().min(0).default(0),
   notes: z.string().optional().nullable(),
   payment_method: z.enum(['dinheiro', 'debito', 'credito']),
@@ -65,7 +65,10 @@ export async function POST(request: NextRequest) {
 
     const data = parsed.data
 
-    const { data: restaurant } = await supabase.from('restaurants').select('id').single()
+    const { data: restaurant } = await supabase
+      .from('restaurants')
+      .select('id, lat, lng, delivery_base_radius_km, delivery_base_fee, delivery_extra_fee_per_km, delivery_max_radius_km')
+      .single()
     if (!restaurant) return NextResponse.json({ error: 'Restaurante não encontrado' }, { status: 404 })
 
     // Recalcular preços no servidor
@@ -120,18 +123,27 @@ export async function POST(request: NextRequest) {
       return { ...item, unit_price: unitPrice, total_price: itemTotal }
     })
 
-    // Buscar taxa de entrega real do banco se for delivery
+    // Calcular taxa de entrega por raio no servidor
     let deliveryFee = 0
-    if (data.type === 'delivery' && data.delivery_zone_id) {
-      const { data: zone } = await supabase
-        .from('delivery_zones')
-        .select('fee, is_active')
-        .eq('id', data.delivery_zone_id)
-        .single()
-      if (!zone || !zone.is_active) {
-        return NextResponse.json({ error: 'Zona de entrega inválida' }, { status: 400 })
+    if (data.type === 'delivery') {
+      if (data.latitude == null || data.longitude == null) {
+        return NextResponse.json({ error: 'Coordenadas de entrega obrigatórias' }, { status: 400 })
       }
-      deliveryFee = Number(zone.fee)
+      const restLat = restaurant.lat
+      const restLng = restaurant.lng
+      if (restLat == null || restLng == null) {
+        return NextResponse.json({ error: 'Localização do restaurante não configurada' }, { status: 500 })
+      }
+      const baseRadius = Number(restaurant.delivery_base_radius_km ?? 3)
+      const baseFee = Number(restaurant.delivery_base_fee ?? 5)
+      const extraPerKm = Number(restaurant.delivery_extra_fee_per_km ?? 2)
+      const maxRadius = Number(restaurant.delivery_max_radius_km ?? 15)
+
+      const distKm = haversineKm(restLat, restLng, data.latitude, data.longitude)
+      if (distKm > maxRadius) {
+        return NextResponse.json({ error: 'Endereço fora da área de entrega' }, { status: 400 })
+      }
+      deliveryFee = calcDeliveryFee(distKm, baseRadius, baseFee, extraPerKm)
     }
 
     const serverTotal = serverSubtotal + deliveryFee
@@ -149,7 +161,7 @@ export async function POST(request: NextRequest) {
         type: data.type,
         table_number: data.table_number ?? '',
         address: data.address ?? '',
-        delivery_zone_id: data.delivery_zone_id ?? '',
+        delivery_zone_id: '',
         delivery_fee: deliveryFee,
         subtotal: serverSubtotal,
         total: serverTotal,
@@ -188,7 +200,7 @@ export async function POST(request: NextRequest) {
         type: data.type,
         table_number: data.table_number || null,
         address: data.address || null,
-        delivery_zone_id: data.delivery_zone_id || null,
+        delivery_zone_id: null,
         delivery_fee: deliveryFee,
         subtotal: serverSubtotal,
         total: serverTotal,

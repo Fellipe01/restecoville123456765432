@@ -1,135 +1,156 @@
 'use client'
 
 import { useState } from 'react'
-import { DeliveryZone } from '@/types'
-import { formatCurrency } from '@/lib/utils'
+import { Restaurant } from '@/types'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 
+type DeliveryConfig = Pick<Restaurant, 'id' | 'delivery_base_radius_km' | 'delivery_base_fee' | 'delivery_extra_fee_per_km' | 'delivery_max_radius_km'>
+
 interface Props {
-  initialZones: DeliveryZone[]
-  restaurantId: string
+  restaurant: DeliveryConfig | null
 }
 
-const emptyForm = { name: '', fee: '', estimated_minutes: '45', minimum_order: '0' }
+const tabs = [
+  { href: '/admin/configuracoes/restaurante', label: 'Restaurante' },
+  { href: '/admin/configuracoes/horarios', label: 'Horários' },
+  { href: '/admin/configuracoes/entrega', label: 'Entrega' },
+  { href: '/admin/configuracoes/whatsapp', label: 'WhatsApp' },
+]
 
-export default function EntregaConfigClient({ initialZones, restaurantId }: Props) {
-  const [zones, setZones] = useState<DeliveryZone[]>(initialZones)
-  const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState<DeliveryZone | null>(null)
-  const [form, setForm] = useState(emptyForm)
-  const [loading, setLoading] = useState(false)
+export default function EntregaConfigClient({ restaurant }: Props) {
   const supabase = createClient()
+  const [loading, setLoading] = useState(false)
+  const [form, setForm] = useState({
+    delivery_base_radius_km: String(restaurant?.delivery_base_radius_km ?? 3),
+    delivery_base_fee: String(restaurant?.delivery_base_fee ?? 5),
+    delivery_extra_fee_per_km: String(restaurant?.delivery_extra_fee_per_km ?? 2),
+    delivery_max_radius_km: String(restaurant?.delivery_max_radius_km ?? 15),
+  })
 
-  const tabs = [
-    { href: '/admin/configuracoes/restaurante', label: 'Restaurante' },
-    { href: '/admin/configuracoes/horarios', label: 'Horários' },
-    { href: '/admin/configuracoes/entrega', label: 'Entrega' },
-    { href: '/admin/configuracoes/whatsapp', label: 'WhatsApp' },
-  ]
-
-  function openCreate() {
-    setEditing(null)
-    setForm(emptyForm)
-    setOpen(true)
-  }
-
-  function openEdit(z: DeliveryZone) {
-    setEditing(z)
-    setForm({ name: z.name, fee: String(z.fee), estimated_minutes: String(z.estimated_minutes), minimum_order: String(z.minimum_order ?? 0) })
-    setOpen(true)
+  function f(key: keyof typeof form) {
+    return (e: React.ChangeEvent<HTMLInputElement>) =>
+      setForm((prev) => ({ ...prev, [key]: e.target.value }))
   }
 
   async function handleSave() {
-    if (!form.name.trim()) return
+    if (!restaurant?.id) return
     setLoading(true)
-    const payload = { name: form.name, fee: parseFloat(form.fee) || 0, estimated_minutes: parseInt(form.estimated_minutes) || 45, minimum_order: parseFloat(form.minimum_order) || 0 }
-
-    if (editing) {
-      const { error } = await supabase.from('delivery_zones').update(payload).eq('id', editing.id)
-      if (error) { toast.error('Erro'); setLoading(false); return }
-      setZones((prev) => prev.map((z) => z.id === editing.id ? { ...z, ...payload } : z))
-      toast.success('Bairro atualizado')
-    } else {
-      const { data, error } = await supabase.from('delivery_zones').insert({ ...payload, restaurant_id: restaurantId }).select().single()
-      if (error) { toast.error('Erro'); setLoading(false); return }
-      setZones((prev) => [...prev, data as DeliveryZone])
-      toast.success('Bairro adicionado')
-    }
+    const { error } = await supabase
+      .from('restaurants')
+      .update({
+        delivery_base_radius_km: parseFloat(form.delivery_base_radius_km) || 3,
+        delivery_base_fee: parseFloat(form.delivery_base_fee) || 0,
+        delivery_extra_fee_per_km: parseFloat(form.delivery_extra_fee_per_km) || 0,
+        delivery_max_radius_km: parseFloat(form.delivery_max_radius_km) || 15,
+      })
+      .eq('id', restaurant.id)
     setLoading(false)
-    setOpen(false)
+    if (error) { toast.error('Erro ao salvar'); return }
+    toast.success('Configurações salvas')
   }
 
-  async function handleDelete(z: DeliveryZone) {
-    if (!confirm(`Remover bairro "${z.name}"?`)) return
-    await supabase.from('delivery_zones').delete().eq('id', z.id)
-    setZones((prev) => prev.filter((item) => item.id !== z.id))
-    toast.success('Bairro removido')
-  }
-
-  async function toggleActive(z: DeliveryZone) {
-    await supabase.from('delivery_zones').update({ is_active: !z.is_active }).eq('id', z.id)
-    setZones((prev) => prev.map((item) => item.id === z.id ? { ...item, is_active: !item.is_active } : item))
-  }
+  const base = parseFloat(form.delivery_base_radius_km) || 0
+  const baseFee = parseFloat(form.delivery_base_fee) || 0
+  const extra = parseFloat(form.delivery_extra_fee_per_km) || 0
+  const max = parseFloat(form.delivery_max_radius_km) || 0
 
   return (
     <div className="p-6 max-w-2xl">
       <h1 className="text-2xl font-bold text-gray-900 mb-2">Configurações</h1>
       <div className="flex gap-4 mb-6 border-b">
         {tabs.map((tab) => (
-          <Link key={tab.href} href={tab.href} className={`pb-2 text-sm font-medium border-b-2 -mb-px transition-colors ${tab.href.endsWith('entrega') ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
+          <Link
+            key={tab.href}
+            href={tab.href}
+            className={`pb-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab.href.endsWith('entrega')
+                ? 'border-orange-500 text-orange-600'
+                : 'border-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
             {tab.label}
           </Link>
         ))}
       </div>
 
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="font-semibold text-gray-800">Bairros e taxas de entrega</h2>
-        <Button onClick={openCreate} size="sm" className="bg-orange-500 hover:bg-orange-600">
-          <Plus className="h-4 w-4 mr-1" /> Adicionar bairro
+      <h2 className="font-semibold text-gray-800 mb-4">Taxa de entrega por raio</h2>
+
+      <div className="bg-white rounded-xl shadow-sm p-5 space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label>Raio base (km)</Label>
+            <Input
+              type="number"
+              step="0.5"
+              min="0"
+              value={form.delivery_base_radius_km}
+              onChange={f('delivery_base_radius_km')}
+              className="mt-1"
+            />
+            <p className="text-xs text-gray-400 mt-1">Taxa fixa até este raio</p>
+          </div>
+          <div>
+            <Label>Taxa base (R$)</Label>
+            <Input
+              type="number"
+              step="0.50"
+              min="0"
+              value={form.delivery_base_fee}
+              onChange={f('delivery_base_fee')}
+              className="mt-1"
+            />
+            <p className="text-xs text-gray-400 mt-1">Cobrado até o raio base</p>
+          </div>
+          <div>
+            <Label>Adicional por km (R$)</Label>
+            <Input
+              type="number"
+              step="0.50"
+              min="0"
+              value={form.delivery_extra_fee_per_km}
+              onChange={f('delivery_extra_fee_per_km')}
+              className="mt-1"
+            />
+            <p className="text-xs text-gray-400 mt-1">Para cada km além do raio base</p>
+          </div>
+          <div>
+            <Label>Raio máximo (km)</Label>
+            <Input
+              type="number"
+              step="0.5"
+              min="0"
+              value={form.delivery_max_radius_km}
+              onChange={f('delivery_max_radius_km')}
+              className="mt-1"
+            />
+            <p className="text-xs text-gray-400 mt-1">Pedidos além deste raio são recusados</p>
+          </div>
+        </div>
+
+        {base > 0 && max > 0 && (
+          <div className="bg-orange-50 border border-orange-100 rounded-lg p-3 text-sm text-gray-700 space-y-1">
+            <p className="font-semibold text-orange-700 text-xs uppercase tracking-wide mb-2">Simulação</p>
+            <p>Até {base} km: <strong>R$ {baseFee.toFixed(2)}</strong></p>
+            {extra > 0 && <p>A cada km além de {base} km: <strong>+R$ {extra.toFixed(2)}</strong></p>}
+            {extra > 0 && base < max && (
+              <p>A {max} km (máximo): <strong>R$ {(baseFee + (max - base) * extra).toFixed(2)}</strong></p>
+            )}
+          </div>
+        )}
+
+        <Button
+          onClick={handleSave}
+          disabled={loading}
+          className="w-full bg-orange-500 hover:bg-orange-600"
+        >
+          Salvar configurações
         </Button>
       </div>
-
-      <div className="space-y-3 bg-white rounded-xl shadow-sm overflow-hidden">
-        {zones.map((z) => (
-          <div key={z.id} className="flex items-center justify-between px-4 py-3 border-b last:border-0">
-            <div>
-              <p className="font-medium text-gray-900">{z.name}</p>
-              <p className="text-sm text-gray-500">
-              {formatCurrency(z.fee)} · ~{z.estimated_minutes} min
-              {(z.minimum_order ?? 0) > 0 && ` · mín ${formatCurrency(z.minimum_order)}`}
-            </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => toggleActive(z)} className={`text-xs underline ${z.is_active ? 'text-red-400' : 'text-green-500'}`}>
-                {z.is_active ? 'Desativar' : 'Ativar'}
-              </button>
-              <button onClick={() => openEdit(z)} className="text-gray-400 hover:text-gray-700"><Pencil className="h-4 w-4" /></button>
-              <button onClick={() => handleDelete(z)} className="text-red-400 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
-            </div>
-          </div>
-        ))}
-        {zones.length === 0 && <p className="text-gray-400 text-sm text-center py-8">Nenhum bairro cadastrado</p>}
-      </div>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>{editing ? 'Editar bairro' : 'Novo bairro'}</DialogTitle></DialogHeader>
-          <div className="space-y-3 pt-2">
-            <div><Label>Nome do bairro</Label><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="mt-1" /></div>
-            <div><Label>Taxa de entrega (R$)</Label><Input type="number" step="0.50" value={form.fee} onChange={(e) => setForm((f) => ({ ...f, fee: e.target.value }))} className="mt-1" /></div>
-            <div><Label>Tempo estimado (min)</Label><Input type="number" value={form.estimated_minutes} onChange={(e) => setForm((f) => ({ ...f, estimated_minutes: e.target.value }))} className="mt-1" /></div>
-            <div><Label>Pedido mínimo (R$)</Label><Input type="number" step="0.50" min="0" value={form.minimum_order} onChange={(e) => setForm((f) => ({ ...f, minimum_order: e.target.value }))} className="mt-1" /><p className="text-xs text-gray-400 mt-1">0 = sem pedido mínimo</p></div>
-            <Button onClick={handleSave} disabled={loading} className="w-full bg-orange-500 hover:bg-orange-600">Salvar</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

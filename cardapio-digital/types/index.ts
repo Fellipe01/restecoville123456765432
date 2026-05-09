@@ -13,6 +13,10 @@ export interface Restaurant {
   city: string
   lat: number | null
   lng: number | null
+  delivery_base_radius_km: number | null
+  delivery_base_fee: number | null
+  delivery_extra_fee_per_km: number | null
+  delivery_max_radius_km: number | null
   created_at: string
 }
 
@@ -213,7 +217,6 @@ export interface CartState {
   order_type: OrderType
   table_number: string
   address: string
-  delivery_zone_id: string
   delivery_fee: number
   notes: string
   payment_method: PaymentMethod
