@@ -1,0 +1,17 @@
+[Unit]
+Description=Remarketing Carrinho Abandonado
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/remarketing
+EnvironmentFile=/root/remarketing/.env
+ExecStart=/root/remarketing/venv/bin/python main.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
