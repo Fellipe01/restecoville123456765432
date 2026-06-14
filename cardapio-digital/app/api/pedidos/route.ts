@@ -4,20 +4,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { checkRateLimitAsync } from '@/lib/rate-limit'
 import { haversineKm, calcDeliveryFee } from '@/lib/utils'
+import { computeIsOpen } from '@/lib/business-hours'
+import { getRestaurantId } from '@/lib/restaurant'
 import type { BusinessHours } from '@/types'
-
-function isRestaurantOpen(hours: BusinessHours[]): boolean {
-  if (!hours.length) return true
-  const now = new Date()
-  let dayOfWeek = now.getUTCDay()
-  let currentMinutes = now.getUTCHours() * 60 + now.getUTCMinutes() - 3 * 60
-  if (currentMinutes < 0) { currentMinutes += 24 * 60; dayOfWeek = (dayOfWeek - 1 + 7) % 7 }
-  const today = hours.find((h) => h.day_of_week === dayOfWeek)
-  if (!today || today.is_closed) return false
-  const [openH, openM] = today.open_time.split(':').map(Number)
-  const [closeH, closeM] = today.close_time.split(':').map(Number)
-  return currentMinutes >= openH * 60 + openM && currentMinutes <= closeH * 60 + closeM
-}
 
 const itemSchema = z.object({
   product_id: z.string().uuid(),
@@ -51,11 +40,12 @@ const orderSchema = z.object({
   troco: z.number().optional().nullable(),
   latitude: z.number().optional().nullable(),
   longitude: z.number().optional().nullable(),
+  coupon_code: z.string().optional().nullable(),
+  scheduled_for: z.string().optional().nullable(),
   items: z.array(itemSchema).min(1).max(50),
 })
 
 export async function POST(request: NextRequest) {
-  // Rate limiting por IP — usa x-real-ip (Vercel/proxies confiáveis) primeiro (A-1)
   const ip =
     request.headers.get('x-real-ip') ??
     request.headers.get('x-forwarded-for')?.split(',').at(-1)?.trim() ??
@@ -80,27 +70,47 @@ export async function POST(request: NextRequest) {
 
     const data = parsed.data
 
-    // Tenta buscar com colunas de raio; se a migration ainda não foi aplicada, cai no fallback
+    // Valida agendamento
+    if (data.scheduled_for) {
+      const scheduledDate = new Date(data.scheduled_for)
+      if (isNaN(scheduledDate.getTime())) {
+        return NextResponse.json({ error: 'Data de agendamento inválida' }, { status: 400 })
+      }
+      const minTime = new Date(Date.now() + 30 * 60 * 1000)
+      const maxTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      if (scheduledDate < minTime) {
+        return NextResponse.json({ error: 'Agendamento deve ser pelo menos 30 minutos no futuro' }, { status: 400 })
+      }
+      if (scheduledDate > maxTime) {
+        return NextResponse.json({ error: 'Agendamento máximo de 7 dias' }, { status: 400 })
+      }
+    }
+
     let restaurant: { id: string; lat: number | null; lng: number | null; delivery_base_radius_km: number | null; delivery_base_fee: number | null; delivery_extra_fee_per_km: number | null; delivery_max_radius_km: number | null } | null = null
     {
-      const { data, error } = await supabase
-        .from('restaurants')
-        .select('id, lat, lng, delivery_base_radius_km, delivery_base_fee, delivery_extra_fee_per_km, delivery_max_radius_km')
-        .single()
+      const restaurantId = await getRestaurantId()
+      const filter = restaurantId
+        ? supabase.from('restaurants').select('id, lat, lng, delivery_base_radius_km, delivery_base_fee, delivery_extra_fee_per_km, delivery_max_radius_km').eq('id', restaurantId)
+        : supabase.from('restaurants').select('id, lat, lng, delivery_base_radius_km, delivery_base_fee, delivery_extra_fee_per_km, delivery_max_radius_km').limit(1)
+      const { data, error } = await filter.single()
       if (!error && data) {
         restaurant = data
       } else {
-        // Colunas de raio ainda não existem — migration pendente
-        const { data: basic } = await supabase.from('restaurants').select('id, lat, lng').single()
+        const fallback = restaurantId
+          ? supabase.from('restaurants').select('id, lat, lng').eq('id', restaurantId)
+          : supabase.from('restaurants').select('id, lat, lng').limit(1)
+        const { data: basic } = await fallback.single()
         if (basic) restaurant = { ...basic, delivery_base_radius_km: null, delivery_base_fee: null, delivery_extra_fee_per_km: null, delivery_max_radius_km: null }
       }
     }
     if (!restaurant) return NextResponse.json({ error: 'Restaurante não encontrado' }, { status: 404 })
 
-    // Bloqueia pedidos se restaurante estiver fechado
-    const { data: businessHours } = await supabase.from('business_hours').select('*')
-    if (!isRestaurantOpen((businessHours ?? []) as BusinessHours[])) {
-      return NextResponse.json({ error: 'Restaurante fechado no momento' }, { status: 403 })
+    // Bloqueia pedidos imediatos se fechado; agendados sempre passam
+    if (!data.scheduled_for) {
+      const { data: businessHours } = await supabase.from('business_hours').select('*').eq('restaurant_id', restaurant.id)
+      if (!(computeIsOpen((businessHours ?? []) as BusinessHours[]) ?? true)) {
+        return NextResponse.json({ error: 'Restaurante fechado no momento' }, { status: 403 })
+      }
     }
 
     // Recalcular preços no servidor
@@ -122,7 +132,6 @@ export async function POST(request: NextRequest) {
     const addonMap = new Map((addons ?? []).map((a) => [a.id, a]))
     const variationMap = new Map((variations ?? []).map((v) => [v.id, v]))
 
-    // Validar e recalcular cada item
     let serverSubtotal = 0
     const validatedItems = data.items.map((item) => {
       const product = productMap.get(item.product_id)
@@ -155,7 +164,7 @@ export async function POST(request: NextRequest) {
       return { ...item, unit_price: unitPrice, total_price: itemTotal }
     })
 
-    // Calcular taxa de entrega por raio no servidor
+    // Taxa de entrega
     let deliveryFee = 0
     if (data.type === 'delivery') {
       const restLat = restaurant.lat
@@ -163,7 +172,6 @@ export async function POST(request: NextRequest) {
       const hasMigration = restaurant.delivery_base_radius_km != null
 
       if (restLat != null && restLng != null && data.latitude != null && data.longitude != null && hasMigration) {
-        // Validação completa por raio
         const baseRadius = Number(restaurant.delivery_base_radius_km)
         const baseFee = Number(restaurant.delivery_base_fee ?? 0)
         const extraPerKm = Number(restaurant.delivery_extra_fee_per_km ?? 0)
@@ -175,56 +183,95 @@ export async function POST(request: NextRequest) {
         }
         deliveryFee = calcDeliveryFee(distKm, baseRadius, baseFee, extraPerKm)
       } else {
-        // Migration ainda não aplicada ou restaurante sem coordenadas — aceita taxa do cliente
         deliveryFee = data.delivery_fee
       }
     }
 
-    const serverTotal = serverSubtotal + deliveryFee
+    // Valida e aplica cupom no servidor
+    let serverDiscountAmount = 0
+    let couponRecord: { id: string; uses_count: number } | null = null
 
-    const estimated_ready_at = new Date(
-      Date.now() + (data.type === 'delivery' ? 45 : 20) * 60 * 1000
-    ).toISOString()
+    if (data.coupon_code) {
+      const { data: coupon } = await supabase
+        .from('coupons')
+        .select('*')
+        .eq('restaurant_id', restaurant.id)
+        .eq('code', data.coupon_code.trim().toUpperCase())
+        .maybeSingle()
 
-    // Tentar usar RPC atômica primeiro
-    const { data: rpcResult, error: rpcError } = await supabase.rpc('create_order', {
-      order_data: {
-        restaurant_id: restaurant.id,
-        customer_name: data.customer_name,
-        customer_phone: data.customer_phone,
-        type: data.type,
-        table_number: data.table_number ?? '',
-        address: data.address ?? '',
-        delivery_zone_id: '',
-        delivery_fee: deliveryFee,
-        subtotal: serverSubtotal,
-        total: serverTotal,
-        notes: data.notes ?? '',
-        estimated_ready_at,
-        payment_method: data.payment_method,
-        troco: data.troco != null ? String(data.troco) : '',
-        latitude: data.latitude ?? null,
-        longitude: data.longitude ?? null,
-        items: validatedItems,
-      },
-    })
-
-    if (!rpcError) {
-      if (data.latitude != null && data.longitude != null) {
-        await createAdminClient()
-          .from('orders')
-          .update({ latitude: data.latitude, longitude: data.longitude })
-          .eq('id', rpcResult.id)
+      if (!coupon || !coupon.is_active) {
+        return NextResponse.json({ error: 'Cupom inválido' }, { status: 400 })
       }
-      const { data: order } = await supabase
-        .from('orders')
-        .select('*, items:order_items(*)')
-        .eq('id', rpcResult.id)
-        .single()
-      return NextResponse.json({ order })
+
+      const now = new Date()
+      if (coupon.valid_until && new Date(coupon.valid_until) < now) {
+        return NextResponse.json({ error: 'Cupom expirado' }, { status: 400 })
+      }
+      if (coupon.max_uses !== null && coupon.uses_count >= coupon.max_uses) {
+        return NextResponse.json({ error: 'Cupom esgotado' }, { status: 400 })
+      }
+      if (serverSubtotal < Number(coupon.min_order_value)) {
+        return NextResponse.json({
+          error: `Pedido mínimo de R$ ${Number(coupon.min_order_value).toFixed(2).replace('.', ',')} para este cupom`,
+        }, { status: 400 })
+      }
+
+      serverDiscountAmount = coupon.discount_type === 'percentage'
+        ? Math.round(serverSubtotal * Number(coupon.discount_value) / 100 * 100) / 100
+        : Math.min(Number(coupon.discount_value), serverSubtotal)
+
+      couponRecord = { id: coupon.id, uses_count: coupon.uses_count }
     }
 
-    // Fallback: inserts sequenciais (enquanto migration não foi aplicada)
+    const serverTotal = serverSubtotal - serverDiscountAmount + deliveryFee
+
+    const estimated_ready_at = data.scheduled_for
+      ? data.scheduled_for
+      : new Date(Date.now() + (data.type === 'delivery' ? 45 : 20) * 60 * 1000).toISOString()
+
+    // Usa RPC apenas quando não há cupom ou agendamento (RPC não conhece esses campos)
+    const useRpc = !data.coupon_code && !data.scheduled_for
+
+    if (useRpc) {
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('create_order', {
+        order_data: {
+          restaurant_id: restaurant.id,
+          customer_name: data.customer_name,
+          customer_phone: data.customer_phone,
+          type: data.type,
+          table_number: data.table_number ?? '',
+          address: data.address ?? '',
+          delivery_zone_id: '',
+          delivery_fee: deliveryFee,
+          subtotal: serverSubtotal,
+          total: serverTotal,
+          notes: data.notes ?? '',
+          estimated_ready_at,
+          payment_method: data.payment_method,
+          troco: data.troco != null ? String(data.troco) : '',
+          latitude: data.latitude ?? null,
+          longitude: data.longitude ?? null,
+          items: validatedItems,
+        },
+      })
+
+      if (!rpcError) {
+        if (data.latitude != null && data.longitude != null) {
+          await createAdminClient()
+            .from('orders')
+            .update({ latitude: data.latitude, longitude: data.longitude })
+            .eq('id', rpcResult.id)
+        }
+        const { data: order } = await supabase
+          .from('orders')
+          .select('*, items:order_items(*)')
+          .eq('id', rpcResult.id)
+          .single()
+        return NextResponse.json({ order })
+      }
+    }
+
+    // Fallback: inserts sequenciais (suporta cupom + agendamento)
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .insert({
@@ -237,6 +284,7 @@ export async function POST(request: NextRequest) {
         delivery_zone_id: null,
         delivery_fee: deliveryFee,
         subtotal: serverSubtotal,
+        discount_amount: serverDiscountAmount,
         total: serverTotal,
         notes: data.notes || null,
         estimated_ready_at,
@@ -244,6 +292,8 @@ export async function POST(request: NextRequest) {
         troco: data.troco ?? null,
         latitude: data.latitude ?? null,
         longitude: data.longitude ?? null,
+        coupon_code: data.coupon_code ? data.coupon_code.trim().toUpperCase() : null,
+        scheduled_for: data.scheduled_for || null,
       })
       .select()
       .single()
@@ -291,6 +341,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Incrementa uses_count do cupom de forma atômica
+    if (couponRecord) {
+      await supabase
+        .from('coupons')
+        .update({ uses_count: couponRecord.uses_count + 1 })
+        .eq('id', couponRecord.id)
+        .eq('uses_count', couponRecord.uses_count)
+    }
+
     return NextResponse.json({ order })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Erro interno'
@@ -302,7 +361,6 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
 
-  // Apenas admins autenticados podem listar pedidos (C-4 — LGPD)
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })

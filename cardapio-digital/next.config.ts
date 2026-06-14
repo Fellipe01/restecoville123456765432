@@ -7,6 +7,16 @@ const SECURITY_HEADERS = [
   { key: 'Permissions-Policy', value: 'camera=(), microphone=()' },
 ]
 
+function getSupabaseHostname(): string {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!url) return 'localhost'
+  try {
+    return new URL(url).hostname
+  } catch {
+    return 'localhost'
+  }
+}
+
 const nextConfig: NextConfig = {
   async headers() {
     return [{ source: '/(.*)', headers: SECURITY_HEADERS }]
@@ -15,7 +25,7 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'myumizisfygpzcsmnjgt.supabase.co',
+        hostname: getSupabaseHostname(),
         pathname: '/storage/v1/object/public/**',
       },
     ],

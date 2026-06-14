@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Product, VariationGroup, Variation } from '@/types'
+import { Product, VariationGroup, Variation, ComboItem } from '@/types'
 import { formatCurrency } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Plus, Pencil, Trash2, Upload, X, ImageIcon, Layers } from 'lucide-react'
+import { Plus, Pencil, Trash2, Upload, X, ImageIcon, Layers, Package } from 'lucide-react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -21,7 +21,7 @@ interface Props {
   restaurantId: string
 }
 
-const emptyForm = { name: '', description: '', base_price: '', category_id: '', image_url: '' }
+const emptyForm = { name: '', description: '', base_price: '', category_id: '', image_url: '', type: 'simple' as 'simple' | 'combo' }
 
 export default function ProdutosClient({ initialProducts, categories, restaurantId }: Props) {
   const [products, setProducts] = useState<Product[]>(initialProducts)
@@ -41,6 +41,13 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
   const [uploadingVarId, setUploadingVarId] = useState<{ groupId: string; variationId: string } | null>(null)
   const [productPickerGroupId, setProductPickerGroupId] = useState<string | null>(null)
 
+  // Combo items
+  const [comboProduct, setComboProduct] = useState<Product | null>(null)
+  const [comboItems, setComboItems] = useState<ComboItem[]>([])
+  const [loadingCombo, setLoadingCombo] = useState(false)
+  const [newItemName, setNewItemName] = useState('')
+  const [newItemQty, setNewItemQty] = useState('1')
+
   function openCreate() {
     setEditing(null)
     setForm(emptyForm)
@@ -49,7 +56,14 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
 
   function openEdit(p: Product) {
     setEditing(p)
-    setForm({ name: p.name, description: p.description ?? '', base_price: String(p.base_price), category_id: p.category_id, image_url: p.image_url ?? '' })
+    setForm({
+      name: p.name,
+      description: p.description ?? '',
+      base_price: String(p.base_price),
+      category_id: p.category_id,
+      image_url: p.image_url ?? '',
+      type: p.type ?? 'simple',
+    })
     setOpen(true)
   }
 
@@ -62,6 +76,7 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
       base_price: parseFloat(form.base_price) || 0,
       category_id: form.category_id,
       image_url: form.image_url || null,
+      type: form.type,
     }
 
     if (editing) {
@@ -88,15 +103,9 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
     try {
       const formData = new FormData()
       formData.append('file', file)
-
       const res = await fetch('/api/admin/upload-image', { method: 'POST', body: formData })
       const json = await res.json()
-
-      if (!res.ok) {
-        toast.error(json.error ?? 'Erro ao enviar imagem')
-        return
-      }
-
+      if (!res.ok) { toast.error(json.error ?? 'Erro ao enviar imagem'); return }
       setForm((f) => ({ ...f, image_url: json.url }))
       toast.success('Imagem enviada!')
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -106,6 +115,8 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
       setUploading(false)
     }
   }
+
+  // ── Variações ──────────────────────────────────────────────
 
   async function openVariacoes(product: Product) {
     setVariacoesProduct(product)
@@ -149,9 +160,7 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
       .select()
       .single()
     if (error) { toast.error('Erro ao adicionar opção: ' + error.message); return }
-    if (data) {
-      setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, variations: [...(g.variations ?? []), data as Variation] } : g))
-    }
+    if (data) setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, variations: [...(g.variations ?? []), data as Variation] } : g))
   }
 
   async function importFromProduct(groupId: string, product: Product) {
@@ -160,14 +169,7 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
     const modifier = product.base_price - basePrice
     const { data, error } = await supabase
       .from('variations')
-      .insert({
-        group_id: groupId,
-        name: product.name,
-        price_modifier: modifier,
-        image_url: product.image_url ?? null,
-        is_available: true,
-        sort_order: group?.variations?.length ?? 0,
-      })
+      .insert({ group_id: groupId, name: product.name, price_modifier: modifier, image_url: product.image_url ?? null, is_available: true, sort_order: group?.variations?.length ?? 0 })
       .select()
       .single()
     if (error) { toast.error('Erro ao importar: ' + error.message); return }
@@ -182,10 +184,7 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
     const snapshot = groups
     setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, variations: g.variations?.map((v) => v.id === variationId ? { ...v, ...updates } : v) } : g))
     const { error } = await supabase.from('variations').update(updates).eq('id', variationId)
-    if (error) {
-      setGroups(snapshot)
-      toast.error('Erro ao salvar. Tente novamente.')
-    }
+    if (error) { setGroups(snapshot); toast.error('Erro ao salvar. Tente novamente.') }
   }
 
   async function deleteVariation(groupId: string, variationId: string) {
@@ -212,6 +211,47 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
     if (variationFileRef.current) variationFileRef.current.value = ''
     setUploadingVarId(null)
   }
+
+  // ── Combo items ─────────────────────────────────────────────
+
+  async function openComboItens(product: Product) {
+    setComboProduct(product)
+    setLoadingCombo(true)
+    setNewItemName('')
+    setNewItemQty('1')
+    const { data } = await supabase
+      .from('combo_items')
+      .select('*')
+      .eq('combo_id', product.id)
+      .order('sort_order')
+    if (data) setComboItems(data as ComboItem[])
+    setLoadingCombo(false)
+  }
+
+  async function addComboItem() {
+    if (!comboProduct || !newItemName.trim()) return
+    const { data, error } = await supabase
+      .from('combo_items')
+      .insert({ combo_id: comboProduct.id, name: newItemName.trim(), quantity: parseInt(newItemQty) || 1, sort_order: comboItems.length })
+      .select()
+      .single()
+    if (error) { toast.error('Erro ao adicionar item'); return }
+    setComboItems((prev) => [...prev, data as ComboItem])
+    setNewItemName('')
+    setNewItemQty('1')
+  }
+
+  async function updateComboItem(id: string, updates: Partial<ComboItem>) {
+    setComboItems((prev) => prev.map((i) => i.id === id ? { ...i, ...updates } : i))
+    await supabase.from('combo_items').update(updates).eq('id', id)
+  }
+
+  async function deleteComboItem(id: string) {
+    setComboItems((prev) => prev.filter((i) => i.id !== id))
+    await supabase.from('combo_items').delete().eq('id', id)
+  }
+
+  // ── Toggle / Delete ─────────────────────────────────────────
 
   async function toggleAvailable(p: Product) {
     const { error } = await supabase.from('products').update({ is_available: !p.is_available }).eq('id', p.id)
@@ -250,8 +290,9 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
               </div>
             )}
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold text-gray-900">{p.name}</span>
+                {p.type === 'combo' && <Badge className="text-[10px] bg-purple-100 text-purple-700 border-0">Combo</Badge>}
                 {!p.is_available && <Badge variant="secondary" className="text-xs">Indisponível</Badge>}
               </div>
               <p className="text-xs text-gray-400">{(p as any).category?.name}</p>
@@ -261,7 +302,15 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
               <button onClick={() => toggleAvailable(p)} className={`text-xs underline ${p.is_available ? 'text-red-400 hover:text-red-600' : 'text-green-500 hover:text-green-700'}`}>
                 {p.is_available ? 'Desativar' : 'Ativar'}
               </button>
-              <button onClick={() => openVariacoes(p)} title="Gerenciar variações" className="text-gray-400 hover:text-orange-500"><Layers className="h-4 w-4" /></button>
+              {p.type === 'combo' ? (
+                <button onClick={() => openComboItens(p)} title="Itens do combo" className="text-gray-400 hover:text-purple-600">
+                  <Package className="h-4 w-4" />
+                </button>
+              ) : (
+                <button onClick={() => openVariacoes(p)} title="Gerenciar variações" className="text-gray-400 hover:text-orange-500">
+                  <Layers className="h-4 w-4" />
+                </button>
+              )}
               <button onClick={() => openEdit(p)} className="text-gray-400 hover:text-gray-700"><Pencil className="h-4 w-4" /></button>
               <button onClick={() => handleDelete(p)} className="text-red-400 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
             </div>
@@ -270,7 +319,81 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
         {products.length === 0 && <p className="text-gray-400 text-sm text-center py-12">Nenhum produto. Crie o primeiro!</p>}
       </div>
 
-      {/* Dialog de Variações */}
+      {/* Dialog: Itens do Combo */}
+      <Dialog open={!!comboProduct} onOpenChange={(o) => { if (!o) setComboProduct(null) }}>
+        <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Itens do combo — {comboProduct?.name}</DialogTitle>
+          </DialogHeader>
+
+          {loadingCombo ? (
+            <div className="py-8 text-center text-gray-400 text-sm">Carregando...</div>
+          ) : (
+            <div className="space-y-4 pt-2">
+              <p className="text-xs text-gray-500">Defina o que está incluído neste combo.</p>
+
+              {/* Lista de itens */}
+              <div className="space-y-2">
+                {comboItems.length === 0 && (
+                  <p className="text-center text-gray-400 text-sm py-4">Nenhum item adicionado ainda.</p>
+                )}
+                {comboItems.map((item) => (
+                  <div key={item.id} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
+                    <input
+                      type="number"
+                      min="1"
+                      defaultValue={item.quantity}
+                      onBlur={(e) => updateComboItem(item.id, { quantity: parseInt(e.target.value) || 1 })}
+                      className="w-12 text-center text-sm border border-gray-200 rounded-lg py-1 focus:border-purple-400 outline-none bg-white font-bold"
+                    />
+                    <span className="text-xs text-gray-400">x</span>
+                    <input
+                      defaultValue={item.name}
+                      onBlur={(e) => updateComboItem(item.id, { name: e.target.value })}
+                      className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1 focus:border-purple-400 outline-none bg-white"
+                    />
+                    <button onClick={() => deleteComboItem(item.id)} className="text-red-400 hover:text-red-600 shrink-0">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Adicionar novo item */}
+              <div className="border-t pt-4 space-y-2">
+                <p className="text-xs font-semibold text-gray-600">Adicionar item</p>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    value={newItemQty}
+                    onChange={(e) => setNewItemQty(e.target.value)}
+                    className="w-14 text-center text-sm border border-gray-200 rounded-xl py-2 focus:border-purple-400 outline-none font-bold"
+                    placeholder="Qtd"
+                  />
+                  <input
+                    value={newItemName}
+                    onChange={(e) => setNewItemName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && addComboItem()}
+                    placeholder="Ex: Pizza Grande, Refrigerante 2L..."
+                    className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 focus:border-purple-400 outline-none"
+                  />
+                  <Button
+                    type="button"
+                    onClick={addComboItem}
+                    disabled={!newItemName.trim()}
+                    className="bg-purple-600 hover:bg-purple-700 shrink-0"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Variações */}
       <Dialog open={!!variacoesProduct} onOpenChange={(o) => { if (!o) setVariacoesProduct(null) }}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
@@ -287,7 +410,6 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
 
               {groups.map((group) => (
                 <div key={group.id} className="border border-gray-200 rounded-xl p-3 space-y-3">
-                  {/* Cabeçalho do grupo */}
                   <div className="flex items-center gap-2">
                     <input
                       className="flex-1 font-semibold text-sm border-0 border-b border-gray-200 focus:border-orange-400 outline-none py-1 bg-transparent"
@@ -299,105 +421,83 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
                     </button>
                   </div>
 
-                  {/* Configurações do grupo */}
                   <div className="flex items-center gap-4 text-xs text-gray-500">
                     <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={group.required}
-                        onChange={(e) => updateGroup(group.id, { required: e.target.checked })}
-                      />
+                      <input type="checkbox" checked={group.required} onChange={(e) => updateGroup(group.id, { required: e.target.checked })} />
                       Obrigatório
                     </label>
                     <label className="flex items-center gap-1.5">
                       Máx. opções:
-                      <select
-                        className="border border-gray-200 rounded px-1 py-0.5 text-xs"
-                        value={group.max_selections}
-                        onChange={(e) => updateGroup(group.id, { max_selections: parseInt(e.target.value) })}
-                      >
-                        {[1,2,3,4,5,6,7,8,9,10].map((n) => (
-                          <option key={n} value={n}>{n}</option>
-                        ))}
+                      <select className="border border-gray-200 rounded px-1 py-0.5 text-xs" value={group.max_selections} onChange={(e) => updateGroup(group.id, { max_selections: parseInt(e.target.value) })}>
+                        {[1,2,3,4,5,6,7,8,9,10].map((n) => <option key={n} value={n}>{n}</option>)}
                       </select>
                     </label>
                   </div>
 
-                  {/* Opções do grupo */}
                   <div className="space-y-3">
                     {group.variations?.map((variation) => {
                       const isSingle = group.max_selections === 1
                       const basePrice = variacoesProduct?.base_price ?? 0
-                      const displayPrice = isSingle
-                        ? basePrice + variation.price_modifier
-                        : variation.price_modifier
+                      const displayPrice = isSingle ? basePrice + variation.price_modifier : variation.price_modifier
                       return (
-                      <div key={variation.id} className="space-y-1.5">
-                        <div className="flex items-center gap-2">
-                          {/* Foto da variação */}
-                          <button
-                            type="button"
-                            onClick={() => triggerVariationImage(group.id, variation.id)}
-                            title="Adicionar foto"
-                            className="relative h-10 w-10 shrink-0 rounded-lg overflow-hidden border border-gray-200 hover:border-orange-400 flex items-center justify-center bg-gray-50 transition-colors"
-                          >
-                            {variation.image_url ? (
-                              <Image src={variation.image_url} alt={variation.name} fill sizes="40px" className="object-cover" />
-                            ) : (
-                              <ImageIcon className="h-4 w-4 text-gray-300" />
-                            )}
-                            {uploadingVarId?.variationId === variation.id && (
-                              <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                                <span className="text-white text-xs">...</span>
-                              </div>
-                            )}
-                          </button>
-                          <input
-                            className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:border-orange-400 outline-none"
-                            defaultValue={variation.name}
-                            placeholder="Nome da opção"
-                            onBlur={(e) => updateVariation(group.id, variation.id, { name: e.target.value })}
-                          />
-                          <div className="flex items-center gap-1 shrink-0">
-                            <span className="text-xs text-gray-400">{isSingle ? 'R$' : '+R$'}</span>
+                        <div key={variation.id} className="space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => triggerVariationImage(group.id, variation.id)}
+                              title="Adicionar foto"
+                              className="relative h-10 w-10 shrink-0 rounded-lg overflow-hidden border border-gray-200 hover:border-orange-400 flex items-center justify-center bg-gray-50 transition-colors"
+                            >
+                              {variation.image_url ? (
+                                <Image src={variation.image_url} alt={variation.name} fill sizes="40px" className="object-cover" />
+                              ) : (
+                                <ImageIcon className="h-4 w-4 text-gray-300" />
+                              )}
+                              {uploadingVarId?.variationId === variation.id && (
+                                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                                  <span className="text-white text-xs">...</span>
+                                </div>
+                              )}
+                            </button>
                             <input
-                              className="w-16 text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:border-orange-400 outline-none"
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              key={`${variation.id}-price`}
-                              defaultValue={displayPrice}
-                              onBlur={(e) => {
-                                const val = parseFloat(e.target.value) || 0
-                                const modifier = isSingle ? val - basePrice : val
-                                updateVariation(group.id, variation.id, { price_modifier: modifier })
-                              }}
+                              className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:border-orange-400 outline-none"
+                              defaultValue={variation.name}
+                              placeholder="Nome da opção"
+                              onBlur={(e) => updateVariation(group.id, variation.id, { name: e.target.value })}
                             />
+                            <div className="flex items-center gap-1 shrink-0">
+                              <span className="text-xs text-gray-400">{isSingle ? 'R$' : '+R$'}</span>
+                              <input
+                                className="w-16 text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:border-orange-400 outline-none"
+                                type="number" step="0.01" min="0"
+                                key={`${variation.id}-price`}
+                                defaultValue={displayPrice}
+                                onBlur={(e) => {
+                                  const val = parseFloat(e.target.value) || 0
+                                  const modifier = isSingle ? val - basePrice : val
+                                  updateVariation(group.id, variation.id, { price_modifier: modifier })
+                                }}
+                              />
+                            </div>
+                            <button onClick={() => deleteVariation(group.id, variation.id)} className="text-red-400 hover:text-red-600 shrink-0">
+                              <X className="h-4 w-4" />
+                            </button>
                           </div>
-                          <button onClick={() => deleteVariation(group.id, variation.id)} className="text-red-400 hover:text-red-600 shrink-0">
-                            <X className="h-4 w-4" />
-                          </button>
+                          <input
+                            className="w-full text-xs border border-gray-100 rounded-lg px-2 py-1.5 focus:border-orange-400 outline-none text-gray-500 placeholder:text-gray-300 ml-12"
+                            defaultValue={variation.description ?? ''}
+                            placeholder="Ingredientes ou descrição (opcional)"
+                            onBlur={(e) => updateVariation(group.id, variation.id, { description: e.target.value || null })}
+                          />
                         </div>
-                        <input
-                          className="w-full text-xs border border-gray-100 rounded-lg px-2 py-1.5 focus:border-orange-400 outline-none text-gray-500 placeholder:text-gray-300 ml-12"
-                          defaultValue={variation.description ?? ''}
-                          placeholder="Ingredientes ou descrição (opcional)"
-                          onBlur={(e) => updateVariation(group.id, variation.id, { description: e.target.value || null })}
-                        />
-                      </div>
-                    )})}
+                      )
+                    })}
 
                     <div className="flex items-center gap-3 mt-1">
-                      <button
-                        onClick={() => addVariation(group.id)}
-                        className="text-xs text-orange-500 hover:text-orange-600 flex items-center gap-1"
-                      >
+                      <button onClick={() => addVariation(group.id)} className="text-xs text-orange-500 hover:text-orange-600 flex items-center gap-1">
                         <Plus className="h-3 w-3" /> Adicionar opção
                       </button>
-                      <button
-                        onClick={() => setProductPickerGroupId(group.id)}
-                        className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1"
-                      >
+                      <button onClick={() => setProductPickerGroupId(group.id)} className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1">
                         <Layers className="h-3 w-3" /> Importar produto
                       </button>
                     </div>
@@ -421,42 +521,35 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
           </DialogHeader>
           <p className="text-xs text-gray-500 -mt-2 mb-3">Selecione um produto para preencher nome, preço e imagem automaticamente.</p>
           <div className="space-y-2">
-            {products
-              .filter((p) => p.id !== variacoesProduct?.id && p.is_available)
-              .map((p) => {
-                const modifier = p.base_price - (variacoesProduct?.base_price ?? 0)
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => importFromProduct(productPickerGroupId!, p)}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-gray-100 hover:border-orange-400 hover:bg-orange-50 transition-all text-left"
-                  >
-                    {p.image_url ? (
-                      <div className="relative h-10 w-10 rounded-lg overflow-hidden shrink-0 bg-gray-100">
-                        <Image src={p.image_url} alt={p.name} fill sizes="40px" className="object-cover" />
-                      </div>
-                    ) : (
-                      <div className="h-10 w-10 rounded-lg bg-gray-100 shrink-0 flex items-center justify-center text-gray-400 text-xs">
-                        {p.name.charAt(0)}
-                      </div>
-                    )}
-                    <span className="flex-1 min-w-0">
-                      <span className="font-semibold text-sm text-gray-800 block truncate">{p.name}</span>
-                      <span className="text-xs text-gray-400">{formatCurrency(p.base_price)}</span>
-                    </span>
-                    <span className={`text-xs font-bold shrink-0 ${modifier === 0 ? 'text-gray-400' : modifier > 0 ? 'text-orange-500' : 'text-emerald-600'}`}>
-                      {modifier === 0 ? 'mesmo preço' : modifier > 0 ? `+${formatCurrency(modifier)}` : formatCurrency(modifier)}
-                    </span>
-                  </button>
-                )
-              })}
+            {products.filter((p) => p.id !== variacoesProduct?.id && p.is_available).map((p) => {
+              const modifier = p.base_price - (variacoesProduct?.base_price ?? 0)
+              return (
+                <button key={p.id} onClick={() => importFromProduct(productPickerGroupId!, p)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-gray-100 hover:border-orange-400 hover:bg-orange-50 transition-all text-left">
+                  {p.image_url ? (
+                    <div className="relative h-10 w-10 rounded-lg overflow-hidden shrink-0 bg-gray-100">
+                      <Image src={p.image_url} alt={p.name} fill sizes="40px" className="object-cover" />
+                    </div>
+                  ) : (
+                    <div className="h-10 w-10 rounded-lg bg-gray-100 shrink-0 flex items-center justify-center text-gray-400 text-xs">{p.name.charAt(0)}</div>
+                  )}
+                  <span className="flex-1 min-w-0">
+                    <span className="font-semibold text-sm text-gray-800 block truncate">{p.name}</span>
+                    <span className="text-xs text-gray-400">{formatCurrency(p.base_price)}</span>
+                  </span>
+                  <span className={`text-xs font-bold shrink-0 ${modifier === 0 ? 'text-gray-400' : modifier > 0 ? 'text-orange-500' : 'text-emerald-600'}`}>
+                    {modifier === 0 ? 'mesmo preço' : modifier > 0 ? `+${formatCurrency(modifier)}` : formatCurrency(modifier)}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Input global para upload de imagem de variação */}
       <input ref={variationFileRef} type="file" accept="image/*" className="hidden" onChange={handleVariationImageUpload} />
 
+      {/* Dialog: Criar/Editar produto */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -467,17 +560,35 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
               <Label>Nome</Label>
               <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="mt-1" />
             </div>
-            <div>
-              <Label>Categoria</Label>
-              <select
-                value={form.category_id}
-                onChange={(e) => setForm((f) => ({ ...f, category_id: e.target.value }))}
-                className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="">Selecione...</option>
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Tipo</Label>
+                <select
+                  value={form.type}
+                  onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as 'simple' | 'combo' }))}
+                  className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                >
+                  <option value="simple">Produto simples</option>
+                  <option value="combo">Combo</option>
+                </select>
+              </div>
+              <div>
+                <Label>Categoria</Label>
+                <select
+                  value={form.category_id}
+                  onChange={(e) => setForm((f) => ({ ...f, category_id: e.target.value }))}
+                  className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                >
+                  <option value="">Selecione...</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
             </div>
+            {form.type === 'combo' && (
+              <p className="text-xs text-purple-600 bg-purple-50 rounded-lg px-3 py-2">
+                Após criar o combo, use o ícone <strong>📦</strong> na lista para definir os itens incluídos.
+              </p>
+            )}
             <div>
               <Label>Descrição</Label>
               <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={2} className="mt-1 text-sm" />
@@ -488,48 +599,23 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
             </div>
             <div>
               <Label>Imagem do produto</Label>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleImageUpload}
-              />
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
               {form.image_url ? (
                 <div className="mt-1 relative rounded-xl overflow-hidden bg-gray-100 h-40 w-full">
                   <Image src={form.image_url} alt="preview" fill className="object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => setForm((f) => ({ ...f, image_url: '' }))}
-                    className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white rounded-full p-1"
-                  >
+                  <button type="button" onClick={() => setForm((f) => ({ ...f, image_url: '' }))} className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white rounded-full p-1">
                     <X className="h-4 w-4" />
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploading}
-                    className="absolute bottom-2 right-2 bg-black/60 hover:bg-black/80 text-white text-xs rounded-lg px-3 py-1.5 flex items-center gap-1.5"
-                  >
+                  <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} className="absolute bottom-2 right-2 bg-black/60 hover:bg-black/80 text-white text-xs rounded-lg px-3 py-1.5 flex items-center gap-1.5">
                     <Upload className="h-3.5 w-3.5" />
                     {uploading ? 'Enviando...' : 'Trocar'}
                   </button>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
-                  className="mt-1 w-full h-32 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-orange-400 hover:text-orange-500 transition-colors"
-                >
-                  {uploading ? (
-                    <span className="text-sm">Enviando...</span>
-                  ) : (
-                    <>
-                      <ImageIcon className="h-8 w-8" />
-                      <span className="text-sm font-medium">Clique para escolher imagem</span>
-                      <span className="text-xs">JPG, PNG, WebP · máx 5 MB</span>
-                    </>
+                <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}
+                  className="mt-1 w-full h-32 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-orange-400 hover:text-orange-500 transition-colors">
+                  {uploading ? <span className="text-sm">Enviando...</span> : (
+                    <><ImageIcon className="h-8 w-8" /><span className="text-sm font-medium">Clique para escolher imagem</span><span className="text-xs">JPG, PNG, WebP · máx 5 MB</span></>
                   )}
                 </button>
               )}

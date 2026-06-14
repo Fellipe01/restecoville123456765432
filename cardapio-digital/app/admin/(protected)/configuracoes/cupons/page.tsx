@@ -1,20 +1,20 @@
 export const dynamic = 'force-dynamic'
 
 import { createClient } from '@/lib/supabase/server'
-import CategoriasClient from '@/components/admin/categorias-client'
+import CuponsClient from '@/components/admin/cupons-client'
 import { getAdminRestaurantId } from '@/lib/restaurant'
 import { redirect } from 'next/navigation'
 
-export default async function CategoriasPage() {
+export default async function CuponsPage() {
   const supabase = await createClient()
   const restaurantId = await getAdminRestaurantId(supabase)
   if (!restaurantId) redirect('/admin/login')
 
-  const { data: categories } = await supabase
-    .from('categories')
+  const { data: coupons } = await supabase
+    .from('coupons')
     .select('*')
     .eq('restaurant_id', restaurantId)
-    .order('sort_order')
+    .order('created_at', { ascending: false })
 
-  return <CategoriasClient initialCategories={categories ?? []} restaurantId={restaurantId} />
+  return <CuponsClient initialCoupons={coupons ?? []} restaurantId={restaurantId} />
 }

@@ -9,7 +9,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import Link from 'next/link'
-import { Clock, Printer } from 'lucide-react'
+import { Clock, Printer, Calendar } from 'lucide-react'
+import { playNewOrderSound } from '@/lib/notification-sound'
+import { printCozinha, printEntrega } from '@/lib/print-receipt'
 
 const COLUMNS: { status: OrderStatus; label: string; headerClass: string; bgClass: string }[] = [
   { status: 'recebido',   label: 'Recebido',        headerClass: 'bg-blue-500',   bgClass: 'bg-blue-50'   },
@@ -60,78 +62,6 @@ interface Props {
   initialOrders: Order[]
 }
 
-function moeda(v: number) { return `R$ ${v.toFixed(2).replace('.', ',')}` }
-
-function gerarHtmlCozinha(order: Order): string {
-  const itens = (order.items || []).map(item => {
-    let s = `<div class="item"><b>${item.quantity}x ${item.product_name}</b>`
-    for (const v of (item.variations || [])) s += `<div class="sub">${v.group_name}: ${v.variation_name}</div>`
-    for (const a of (item.addons   || [])) s += `<div class="sub">+ ${a.addon_name}</div>`
-    if (item.notes) s += `<div class="sub">Obs: ${item.notes}</div>`
-    return s + '</div>'
-  }).join('')
-
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cozinha #${order.order_number}</title>
-<style>
-  body{font-family:monospace;font-size:14px;width:300px;margin:0 auto;padding:8px}
-  h1{text-align:center;font-size:16px;margin:4px 0}
-  h2{text-align:center;font-size:36px;margin:4px 0}
-  .center{text-align:center} hr{border:1px dashed #000}
-  .item{margin:8px 0;font-size:15px} .sub{margin-left:14px;font-weight:normal;font-size:13px}
-  @media print{body{margin:0}}
-</style></head><body>
-<h1>Ecoville Restaurante</h1>
-<hr><div class="center"><b>*** COZINHA ***</b></div>
-<h2>#${String(order.order_number).padStart(3,'0')}</h2><hr>
-<div class="center"><b>${order.type === 'delivery' ? 'DELIVERY' : 'BALCÃO'}</b></div><hr>
-${itens}
-${order.notes ? `<hr><div><b>OBS: ${order.notes}</b></div>` : ''}
-<hr>
-<script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}</script>
-</body></html>`
-}
-
-function gerarHtmlEntrega(order: Order): string {
-  const deliveryFee = Number(order.delivery_fee || 0)
-  const total       = Number(order.total)
-  const subtotal    = total - deliveryFee
-  const metodos: Record<string, string> = { dinheiro:'Dinheiro', debito:'Débito', credito:'Crédito', pix:'PIX' }
-
-  const itens = (order.items || []).map(item => {
-    let s = `<div class="row"><span>${item.quantity}x ${item.product_name}</span><span>${moeda(item.total_price)}</span></div>`
-    for (const a of (item.addons || [])) s += `<div class="row sub"><span>+ ${a.addon_name}</span><span>${moeda(a.price || 0)}</span></div>`
-    return s
-  }).join('')
-
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Entrega #${order.order_number}</title>
-<style>
-  body{font-family:monospace;font-size:13px;width:300px;margin:0 auto;padding:8px}
-  h1{text-align:center;font-size:15px;margin:4px 0}
-  .info{font-size:11px;text-align:center} hr{border:1px dashed #000}
-  .row{display:flex;justify-content:space-between;margin:3px 0}
-  .sub{margin-left:12px;font-size:12px} .bold{font-weight:bold}
-  @media print{body{margin:0}}
-</style></head><body>
-<h1>Ecoville Restaurante</h1>
-<div class="info">lote 17, n. 17 - Rua Santa Luzia | Gurupi - TO</div>
-<hr>
-<div>Pedido: <b>#${order.order_number}</b></div>
-<div>Cliente: ${order.customer_name}</div>
-<div>Telefone: ${order.customer_phone}</div>
-${order.address ? `<div>Endereço: ${order.address}</div>` : ''}
-<hr>
-${itens}
-<hr>
-<div class="row"><span>Subtotal:</span><span>${moeda(subtotal)}</span></div>
-<div class="row"><span>Taxa entrega:</span><span>${moeda(deliveryFee)}</span></div>
-<div class="row bold"><span>TOTAL:</span><span>${moeda(total)}</span></div>
-<hr>
-<div>Pagamento: ${metodos[order.payment_method ?? ''] || order.payment_method}</div>
-${order.troco ? `<div>Troco para: ${moeda(Number(order.troco))}</div>` : ''}
-<hr><div style="text-align:center">OBRIGADO!</div>
-<script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}</script>
-</body></html>`
-}
 
 export default function PedidosClient({ initialOrders }: Props) {
   const [orders, setOrders] = useState<Order[]>(initialOrders)
@@ -164,6 +94,7 @@ export default function PedidosClient({ initialOrders }: Props) {
         if (data) {
           setOrders((prev) => prev.find((o) => o.id === data.id) ? prev : [data as Order, ...prev])
         }
+        playNewOrderSound()
         toast.success(`🛎 Novo pedido #${novo.order_number}!`, { duration: 6000 })
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
@@ -205,11 +136,8 @@ export default function PedidosClient({ initialOrders }: Props) {
   }
 
   function imprimir(order: Order, tipo: 'cozinha' | 'entrega') {
-    const html = tipo === 'cozinha' ? gerarHtmlCozinha(order) : gerarHtmlEntrega(order)
-    const win = window.open('', '_blank', 'width=420,height=700')
-    if (!win) { toast.error('Permita popups neste site para imprimir'); return }
-    win.document.write(html)
-    win.document.close()
+    if (tipo === 'cozinha') printCozinha(order)
+    else printEntrega(order)
   }
 
   async function cancelOrder(order: Order) {
@@ -272,7 +200,7 @@ export default function PedidosClient({ initialOrders }: Props) {
                       {/* Cliente */}
                       <p className="text-sm font-medium text-gray-800 truncate">{order.customer_name}</p>
 
-                      {/* Tipo + pagamento */}
+                      {/* Tipo + pagamento + extras */}
                       <div className="flex gap-1 flex-wrap">
                         <Badge variant="outline" className="text-xs px-1.5 py-0">
                           {order.type === 'delivery' ? '🛵' : '🏪'} {order.type === 'delivery' ? 'Delivery' : 'Balcão'}
@@ -280,6 +208,17 @@ export default function PedidosClient({ initialOrders }: Props) {
                         <Badge variant="outline" className="text-xs px-1.5 py-0">
                           {order.payment_method === 'dinheiro' ? '💵' : '💳'} {getPaymentLabel(order.payment_method ?? 'dinheiro')}
                         </Badge>
+                        {order.coupon_code && (
+                          <Badge className="text-[10px] px-1.5 py-0 bg-green-100 text-green-700 border-0">
+                            🏷 {order.coupon_code}
+                          </Badge>
+                        )}
+                        {order.scheduled_for && (
+                          <Badge className="text-[10px] px-1.5 py-0 bg-blue-100 text-blue-700 border-0 flex items-center gap-0.5">
+                            <Calendar className="h-2.5 w-2.5" />
+                            {new Date(order.scheduled_for).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                          </Badge>
+                        )}
                       </div>
 
                       {/* Itens */}

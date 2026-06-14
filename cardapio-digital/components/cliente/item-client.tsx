@@ -158,10 +158,37 @@ export default function ItemClient({ product }: Props) {
         {product.description && (
           <p className="text-gray-500 mt-2 text-sm leading-relaxed">{product.description}</p>
         )}
-        <p className="text-xl font-bold text-orange-500 mt-3">
-          {formatCurrency(product.base_price)}
-        </p>
+        <div className="mt-3 flex items-center gap-2">
+          <p className="text-xl font-bold text-orange-500">
+            {formatCurrency(product.base_price)}
+          </p>
+          {product.type === 'combo' && (
+            <span className="px-2.5 py-1 text-[11px] font-bold bg-purple-100 text-purple-700 rounded-full">
+              Combo
+            </span>
+          )}
+        </div>
       </div>
+
+      {/* Itens incluídos no combo */}
+      {product.type === 'combo' && (product.combo_items?.length ?? 0) > 0 && (
+        <section className="mt-3 bg-white px-5 py-5">
+          <h3 className="font-bold text-gray-900 text-base mb-3">O que está incluído</h3>
+          <div className="space-y-2">
+            {product.combo_items
+              ?.slice()
+              .sort((a, b) => a.sort_order - b.sort_order)
+              .map((item) => (
+                <div key={item.id} className="flex items-center gap-3">
+                  <span className="h-7 w-7 rounded-full bg-purple-100 text-purple-700 text-xs font-bold flex items-center justify-center shrink-0">
+                    {item.quantity}x
+                  </span>
+                  <span className="text-sm text-gray-800 font-medium">{item.name}</span>
+                </div>
+              ))}
+          </div>
+        </section>
+      )}
 
       {/* Variações */}
       {product.variation_groups?.map((group) => (

@@ -31,10 +31,15 @@ export default function ProductCard({ product }: Props) {
               </p>
             )}
           </div>
-          <div className="mt-2 flex items-center gap-2">
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
             <p className="font-bold text-base text-orange-500">
               {formatCurrency(product.base_price)}
             </p>
+            {product.type === 'combo' && (
+              <span className="px-2 py-0.5 text-[10px] font-semibold bg-purple-100 text-purple-700 rounded-full">
+                Combo
+              </span>
+            )}
             {!product.is_available && (
               <span className="px-2 py-0.5 text-[10px] font-semibold bg-gray-100 text-gray-500 rounded-full">
                 Indisponível

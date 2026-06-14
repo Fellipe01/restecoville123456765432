@@ -91,6 +91,14 @@ export interface Addon {
   sort_order: number
 }
 
+export interface ComboItem {
+  id: string
+  combo_id: string
+  name: string
+  quantity: number
+  sort_order: number
+}
+
 export interface Product {
   id: string
   restaurant_id: string
@@ -101,10 +109,12 @@ export interface Product {
   base_price: number
   is_available: boolean
   sort_order: number
+  type: 'simple' | 'combo'
   created_at: string
   category?: Category
   variation_groups?: VariationGroup[]
   addon_groups?: AddonGroup[]
+  combo_items?: ComboItem[]
 }
 
 export interface DeliveryZone {
@@ -115,6 +125,21 @@ export interface DeliveryZone {
   estimated_minutes: number
   minimum_order: number
   is_active: boolean
+}
+
+export interface Coupon {
+  id: string
+  restaurant_id: string
+  code: string
+  discount_type: 'percentage' | 'fixed'
+  discount_value: number
+  min_order_value: number
+  max_uses: number | null
+  uses_count: number
+  valid_from: string | null
+  valid_until: string | null
+  is_active: boolean
+  created_at: string
 }
 
 export type OrderStatus = 'recebido' | 'preparando' | 'pronto' | 'saindo' | 'entregue' | 'cancelado'
@@ -141,6 +166,9 @@ export interface Order {
   payment_method: PaymentMethod
   troco: number | null
   estimated_ready_at: string | null
+  coupon_code: string | null
+  discount_amount: number
+  scheduled_for: string | null
   created_at: string
   updated_at: string
   deliverer_id?: string | null

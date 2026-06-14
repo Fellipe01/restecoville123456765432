@@ -6,7 +6,9 @@ import { createClient } from '@/lib/supabase/client'
 import { getPaymentLabel } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Clock, Printer, ToggleLeft, ToggleRight, X } from 'lucide-react'
+import { playNewOrderSound } from '@/lib/notification-sound'
 import { Button } from '@/components/ui/button'
+import { printCozinha } from '@/lib/print-receipt'
 
 interface SimpleProduct {
   id: string
@@ -64,7 +66,7 @@ export default function CozinhaClient({ initialOrders, initialProducts }: Props)
         if (data) {
           setOrders((prev) => prev.find((o) => o.id === data.id) ? prev : [...prev, data as Order])
         }
-        new Audio('/notify.mp3').play().catch(() => {})
+        playNewOrderSound()
         toast.success(`🛎 Novo pedido #${novo.order_number}!`, { duration: 6000 })
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
@@ -80,10 +82,8 @@ export default function CozinhaClient({ initialOrders, initialProducts }: Props)
     return () => { supabase.removeChannel(channel); clearInterval(poll) }
   }, [])
 
-  async function imprimir(order: Order) {
-    const { error } = await supabase.from('print_jobs').insert({ order_id: order.id, type: 'cozinha' })
-    if (error) toast.error('Erro ao enviar para impressora')
-    else toast.success('Enviado para impressora 🖨️')
+  function imprimir(order: Order) {
+    printCozinha(order)
   }
 
   async function markPreparando(order: Order) {
@@ -199,6 +199,11 @@ export default function CozinhaClient({ initialOrders, initialProducts }: Props)
                   {paymentIcon(order.payment_method)} {getPaymentLabel(order.payment_method)}
                   {order.troco ? ` · troco p/ R$ ${Number(order.troco).toFixed(2)}` : ''}
                 </p>
+                {order.scheduled_for && (
+                  <p className="text-xs text-blue-300 font-semibold">
+                    📅 Agendado: {new Date(order.scheduled_for).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                  </p>
+                )}
                 {order.notes && (
                   <p className="text-xs text-yellow-300">📝 {order.notes}</p>
                 )}

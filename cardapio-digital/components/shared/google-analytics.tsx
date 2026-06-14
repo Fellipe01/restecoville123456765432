@@ -2,6 +2,8 @@ import Script from 'next/script'
 import { GA_ID } from '@/lib/gtag'
 
 export default function GoogleAnalytics() {
+  if (!GA_ID) return null
+
   return (
     <>
       <Script

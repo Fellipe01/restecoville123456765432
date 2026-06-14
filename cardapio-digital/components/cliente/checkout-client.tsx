@@ -12,7 +12,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { ArrowLeft, Loader2, ChevronRight, MapPin, Store, Bike, Check, AlertTriangle, Banknote, Wallet, CreditCard } from 'lucide-react'
+import {
+  ArrowLeft, Loader2, ChevronRight, MapPin, Store, Bike, Check,
+  AlertTriangle, Banknote, Wallet, CreditCard, Tag, Calendar,
+} from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { trackMetaInitiateCheckout } from '@/lib/meta-pixel'
@@ -37,6 +40,13 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>
 
+interface AppliedCoupon {
+  code: string
+  discount_type: string
+  discount_value: number
+  discount_amount: number
+}
+
 const PAYMENT_OPTIONS: { value: PaymentMethod; label: string; Icon: React.ElementType }[] = [
   { value: 'dinheiro', label: 'Dinheiro', Icon: Banknote },
   { value: 'debito',   label: 'Débito',   Icon: Wallet },
@@ -59,6 +69,17 @@ export default function CheckoutClient({ restaurant }: Props) {
   const [deliveryFee, setDeliveryFee] = useState(0)
   const [outOfRange, setOutOfRange] = useState(false)
 
+  // Cupom
+  const [couponInput, setCouponInput] = useState('')
+  const [coupon, setCoupon] = useState<AppliedCoupon | null>(null)
+  const [couponLoading, setCouponLoading] = useState(false)
+  const [couponError, setCouponError] = useState('')
+
+  // Agendamento
+  const [scheduled, setScheduled] = useState(false)
+  const [scheduledDate, setScheduledDate] = useState('')
+  const [scheduledTime, setScheduledTime] = useState('')
+
   const mode = restaurant?.operation_mode ?? 'ambos'
   const defaultType: OrderType = mode === 'delivery' ? 'delivery' : 'balcao'
 
@@ -77,7 +98,19 @@ export default function CheckoutClient({ restaurant }: Props) {
   const orderType = watch('order_type')
   const paymentMethod = watch('payment_method')
   const subtotal = getSubtotal()
-  const total = subtotal + (orderType === 'delivery' ? deliveryFee : 0)
+  const discount = coupon?.discount_amount ?? 0
+  const total = subtotal - discount + (orderType === 'delivery' ? deliveryFee : 0)
+
+  // Recalcula desconto ao mudar subtotal (ex: se o usuário voltar e alterar itens)
+  useEffect(() => {
+    if (!coupon) return
+    const newDiscount = coupon.discount_type === 'percentage'
+      ? Math.round(subtotal * coupon.discount_value / 100 * 100) / 100
+      : Math.min(coupon.discount_value, subtotal)
+    if (newDiscount !== coupon.discount_amount) {
+      setCoupon({ ...coupon, discount_amount: newDiscount })
+    }
+  }, [subtotal]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const firedCheckout = useRef(false)
   useEffect(() => {
@@ -114,6 +147,43 @@ export default function CheckoutClient({ restaurant }: Props) {
     if (address) setValue('address', address)
   }
 
+  async function applyCoupon() {
+    const code = couponInput.trim().toUpperCase()
+    if (!code) return
+    setCouponLoading(true)
+    setCouponError('')
+    try {
+      const res = await fetch(`/api/cupom?code=${encodeURIComponent(code)}&subtotal=${subtotal}`)
+      const json = await res.json()
+      if (!res.ok) {
+        setCouponError(json.error ?? 'Cupom inválido')
+        setCoupon(null)
+      } else {
+        setCoupon(json.coupon)
+        setCouponError('')
+      }
+    } catch {
+      setCouponError('Erro ao verificar cupom')
+    } finally {
+      setCouponLoading(false)
+    }
+  }
+
+  function removeCoupon() {
+    setCoupon(null)
+    setCouponInput('')
+    setCouponError('')
+  }
+
+  // Data mínima de agendamento (hoje)
+  const minDate = new Date().toISOString().split('T')[0]
+  const maxDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+  function buildScheduledFor(): string | null {
+    if (!scheduled || !scheduledDate || !scheduledTime) return null
+    return new Date(`${scheduledDate}T${scheduledTime}:00`).toISOString()
+  }
+
   async function goToStep2() {
     const valid = await trigger(['customer_name', 'customer_phone'])
     if (!valid) return
@@ -121,6 +191,15 @@ export default function CheckoutClient({ restaurant }: Props) {
     if (orderType === 'delivery') {
       if (!coords) { toast.error('Marque o local de entrega no mapa'); return }
       if (outOfRange) { toast.error('Endereço fora da área de entrega'); return }
+    }
+
+    if (scheduled) {
+      if (!scheduledDate || !scheduledTime) { toast.error('Informe a data e hora do agendamento'); return }
+      const scheduledFor = new Date(`${scheduledDate}T${scheduledTime}:00`)
+      if (scheduledFor < new Date(Date.now() + 30 * 60 * 1000)) {
+        toast.error('Agendamento deve ser pelo menos 30 minutos no futuro')
+        return
+      }
     }
 
     window.scrollTo(0, 0)
@@ -172,12 +251,14 @@ export default function CheckoutClient({ restaurant }: Props) {
           address: fullAddress,
           delivery_fee: fee,
           subtotal,
-          total: subtotal + fee,
+          total,
           notes: data.notes,
           payment_method: data.payment_method,
           troco: data.payment_method === 'dinheiro' && data.troco ? parseFloat(data.troco) : null,
           latitude: coords?.lat ?? null,
           longitude: coords?.lng ?? null,
+          coupon_code: coupon?.code ?? null,
+          scheduled_for: buildScheduledFor(),
           items: items.map((item) => ({
             product_id: item.product_id,
             product_name: item.product_name,
@@ -259,10 +340,10 @@ export default function CheckoutClient({ restaurant }: Props) {
 
       <form onSubmit={handleSubmit(onSubmit)} className="px-4 py-4 space-y-4">
 
-        {/* ── STEP 1: Dados + Entrega ── */}
+        {/* ── STEP 1: Dados + Entrega + Agendamento ── */}
         {step === 1 && (
           <div className="space-y-4">
-            {/* Card de dados */}
+            {/* Dados */}
             <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
               <h2 className="font-bold text-gray-900 text-sm">Seus dados</h2>
               <div>
@@ -341,7 +422,6 @@ export default function CheckoutClient({ restaurant }: Props) {
                   <MapPicker onLocationSelect={handleLocationSelect} initialCoords={coords} />
                 </div>
 
-                {/* Fee preview */}
                 {coords && (
                   outOfRange ? (
                     <div className="flex items-center gap-2 bg-red-50 border border-red-100 rounded-xl px-3 py-2.5">
@@ -380,10 +460,52 @@ export default function CheckoutClient({ restaurant }: Props) {
                 </div>
               </div>
             )}
+
+            {/* Agendamento */}
+            <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+              <button
+                type="button"
+                onClick={() => setScheduled((s) => !s)}
+                className="w-full flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-orange-500" />
+                  <span className="font-bold text-gray-900 text-sm">Agendar para depois</span>
+                </div>
+                <div className={`w-10 h-6 rounded-full transition-colors ${scheduled ? 'bg-orange-500' : 'bg-gray-200'}`}>
+                  <div className={`w-5 h-5 bg-white rounded-full shadow-sm transition-transform mt-0.5 ${scheduled ? 'translate-x-4.5 ml-0.5' : 'translate-x-0.5'}`} />
+                </div>
+              </button>
+
+              {scheduled && (
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <Label className="text-xs text-gray-600 font-medium">Data</Label>
+                    <Input
+                      type="date"
+                      value={scheduledDate}
+                      min={minDate}
+                      max={maxDate}
+                      onChange={(e) => setScheduledDate(e.target.value)}
+                      className="mt-1.5 h-11 rounded-xl border-gray-200 bg-gray-50 focus-visible:ring-orange-500/30"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-gray-600 font-medium">Hora</Label>
+                    <Input
+                      type="time"
+                      value={scheduledTime}
+                      onChange={(e) => setScheduledTime(e.target.value)}
+                      className="mt-1.5 h-11 rounded-xl border-gray-200 bg-gray-50 focus-visible:ring-orange-500/30"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
-        {/* ── STEP 2: Pagamento ── */}
+        {/* ── STEP 2: Pagamento + Cupom ── */}
         {step === 2 && (
           <div className="space-y-4">
             {/* Resumo */}
@@ -399,6 +521,12 @@ export default function CheckoutClient({ restaurant }: Props) {
                 <div className="flex justify-between text-xs text-gray-500 pt-1">
                   <span>Taxa de entrega</span>
                   <span>{formatCurrency(deliveryFee)}</span>
+                </div>
+              )}
+              {discount > 0 && (
+                <div className="flex justify-between text-xs text-green-600 font-medium pt-1">
+                  <span>Desconto ({coupon?.code})</span>
+                  <span>- {formatCurrency(discount)}</span>
                 </div>
               )}
               <div className="flex justify-between font-bold text-base pt-2 border-t border-gray-100">
@@ -462,6 +590,57 @@ export default function CheckoutClient({ restaurant }: Props) {
                 className="mt-1.5 text-sm rounded-xl border-gray-200 bg-gray-50 focus-visible:ring-orange-500/30"
               />
             </div>
+
+            {/* Cupom */}
+            <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Tag className="h-4 w-4 text-orange-500" />
+                <h2 className="font-bold text-gray-900 text-sm">Cupom de desconto</h2>
+              </div>
+
+              {coupon ? (
+                <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-3 py-2.5">
+                  <div>
+                    <p className="text-sm font-bold text-green-700">{coupon.code}</p>
+                    <p className="text-xs text-green-600">
+                      {coupon.discount_type === 'percentage'
+                        ? `${coupon.discount_value}% de desconto`
+                        : `R$ ${coupon.discount_value.toFixed(2)} de desconto`}
+                      {' · '}economia de {formatCurrency(coupon.discount_amount)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={removeCoupon}
+                    className="text-xs text-gray-400 hover:text-red-500 transition-colors ml-2"
+                  >
+                    Remover
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Input
+                    value={couponInput}
+                    onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), applyCoupon())}
+                    placeholder="Código do cupom"
+                    className="h-11 rounded-xl border-gray-200 bg-gray-50 focus-visible:ring-orange-500/30 uppercase"
+                  />
+                  <Button
+                    type="button"
+                    onClick={applyCoupon}
+                    disabled={couponLoading || !couponInput.trim()}
+                    className="h-11 px-4 rounded-xl bg-orange-500 hover:bg-orange-600 shrink-0"
+                  >
+                    {couponLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Aplicar'}
+                  </Button>
+                </div>
+              )}
+
+              {couponError && (
+                <p className="text-red-500 text-xs">{couponError}</p>
+              )}
+            </div>
           </div>
         )}
 
@@ -505,6 +684,15 @@ export default function CheckoutClient({ restaurant }: Props) {
                     )}
                   </>
                 )}
+                {scheduled && scheduledDate && scheduledTime && (
+                  <div className="flex justify-between py-2">
+                    <span className="text-gray-500">Agendado para</span>
+                    <span className="font-semibold text-orange-600 text-xs flex items-center gap-1">
+                      <Calendar className="h-3 w-3" />
+                      {new Date(`${scheduledDate}T${scheduledTime}`).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between pt-2">
                   <span className="text-gray-500">Pagamento</span>
                   <span className="font-semibold text-gray-900 text-right">
@@ -532,6 +720,12 @@ export default function CheckoutClient({ restaurant }: Props) {
                   <div className="flex justify-between text-sm text-gray-500">
                     <span>Taxa de entrega</span>
                     <span>{formatCurrency(deliveryFee)}</span>
+                  </div>
+                )}
+                {discount > 0 && (
+                  <div className="flex justify-between text-sm text-green-600 font-medium">
+                    <span>Cupom ({coupon?.code})</span>
+                    <span>- {formatCurrency(discount)}</span>
                   </div>
                 )}
                 <div className="flex justify-between font-bold text-base pt-1">

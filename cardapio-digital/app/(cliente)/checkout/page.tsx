@@ -5,29 +5,21 @@ import { BusinessHours, Restaurant } from '@/types'
 import CheckoutClient from '@/components/cliente/checkout-client'
 import Link from 'next/link'
 import { Clock } from 'lucide-react'
-
-function computeIsOpen(hours: BusinessHours[]): boolean {
-  if (!hours.length) return true
-  const now = new Date()
-  let dayOfWeek = now.getUTCDay()
-  let currentMinutes = now.getUTCHours() * 60 + now.getUTCMinutes() - 3 * 60
-  if (currentMinutes < 0) { currentMinutes += 24 * 60; dayOfWeek = (dayOfWeek - 1 + 7) % 7 }
-  const today = hours.find((h) => h.day_of_week === dayOfWeek)
-  if (!today || today.is_closed) return false
-  const [openH, openM] = today.open_time.split(':').map(Number)
-  const [closeH, closeM] = today.close_time.split(':').map(Number)
-  return currentMinutes >= openH * 60 + openM && currentMinutes <= closeH * 60 + closeM
-}
+import { computeIsOpen } from '@/lib/business-hours'
+import { getRestaurantId } from '@/lib/restaurant'
+import { notFound } from 'next/navigation'
 
 export default async function CheckoutPage() {
   const supabase = await createClient()
+  const restaurantId = await getRestaurantId()
+  if (!restaurantId) notFound()
 
   const [{ data: restaurant }, { data: hours }] = await Promise.all([
-    supabase.from('restaurants').select('*').single(),
-    supabase.from('business_hours').select('*').order('day_of_week'),
+    supabase.from('restaurants').select('*').eq('id', restaurantId).single(),
+    supabase.from('business_hours').select('*').eq('restaurant_id', restaurantId).order('day_of_week'),
   ])
 
-  const isOpen = computeIsOpen((hours ?? []) as BusinessHours[])
+  const isOpen = computeIsOpen((hours ?? []) as BusinessHours[]) ?? true
 
   if (!isOpen) {
     return (

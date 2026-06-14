@@ -1,4 +1,4 @@
-export const GA_ID = 'G-BNYG5MH4K6'
+export const GA_ID = process.env.NEXT_PUBLIC_GA_ID ?? ''
 
 declare global {
   interface Window {
