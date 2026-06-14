@@ -32,11 +32,30 @@ export default async function HomePage() {
     ? { ...restaurant, is_open: computed !== null ? computed : restaurant.is_open }
     : null
 
+  // Marca indisponível produtos fora do horário configurado
+  const nowMinutes = (() => {
+    const now = new Date()
+    return now.getHours() * 60 + now.getMinutes()
+  })()
+  function timeToMinutes(t: string) {
+    const [h, m] = t.split(':').map(Number)
+    return h * 60 + m
+  }
+  const timedProducts = (products ?? []).map((p: any) => {
+    if (!p.available_from || !p.available_until) return p
+    const from = timeToMinutes(p.available_from)
+    const until = timeToMinutes(p.available_until)
+    const inWindow = from <= until
+      ? nowMinutes >= from && nowMinutes <= until
+      : nowMinutes >= from || nowMinutes <= until // cruza meia-noite
+    return inWindow ? p : { ...p, is_available: false }
+  })
+
   return (
     <HomeClient
       restaurant={effectiveRestaurant as Restaurant}
       categories={(categories ?? []) as Category[]}
-      products={(products ?? []) as Product[]}
+      products={timedProducts as Product[]}
       activeOrdersCount={activeOrdersCount ?? 0}
     />
   )

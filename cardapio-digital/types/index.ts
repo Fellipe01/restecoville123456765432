@@ -169,6 +169,8 @@ export interface Order {
   coupon_code: string | null
   discount_amount: number
   scheduled_for: string | null
+  rating: number | null
+  rating_comment: string | null
   created_at: string
   updated_at: string
   deliverer_id?: string | null

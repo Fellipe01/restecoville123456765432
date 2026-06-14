@@ -8,9 +8,10 @@ import { formatCurrency, getOrderStatusLabel, maskPhone } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ArrowLeft, MessageCircle, RefreshCw, Package, Bike, Store } from 'lucide-react'
+import { ArrowLeft, MessageCircle, RefreshCw, Package, Bike, Store, Star } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { toast } from 'sonner'
 
 interface Props {
   restaurantId: string
@@ -32,6 +33,98 @@ function buildWhatsAppLink(whatsappNumber: string, orderNumber: number) {
   return `https://wa.me/${number}?text=${msg}`
 }
 
+function StarRating({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const [hovered, setHovered] = useState(0)
+  return (
+    <div className="flex gap-1">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <button
+          key={star}
+          type="button"
+          onClick={() => onChange(star)}
+          onMouseEnter={() => setHovered(star)}
+          onMouseLeave={() => setHovered(0)}
+          className="focus:outline-none"
+        >
+          <Star
+            className="h-8 w-8 transition-colors"
+            fill={(hovered || value) >= star ? '#f97316' : 'none'}
+            stroke={(hovered || value) >= star ? '#f97316' : '#d1d5db'}
+            strokeWidth={1.5}
+          />
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function RatingWidget({ order, onRated }: { order: Order; onRated: (orderId: string, rating: number) => void }) {
+  const [rating, setRating] = useState(0)
+  const [comment, setComment] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [done, setDone] = useState(!!order.rating)
+
+  if (done || order.rating) {
+    const stars = order.rating ?? rating
+    return (
+      <div className="border-t border-gray-100 pt-4">
+        <p className="text-xs font-semibold text-gray-500 mb-2">Sua avaliação</p>
+        <div className="flex gap-1">
+          {[1, 2, 3, 4, 5].map((s) => (
+            <Star key={s} className="h-5 w-5" fill={stars >= s ? '#f97316' : 'none'} stroke={stars >= s ? '#f97316' : '#d1d5db'} strokeWidth={1.5} />
+          ))}
+        </div>
+        {order.rating_comment && <p className="text-xs text-gray-500 mt-1 italic">"{order.rating_comment}"</p>}
+      </div>
+    )
+  }
+
+  async function submit() {
+    if (!rating) return
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/pedidos/${order.id}/rating`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating, comment }),
+      })
+      if (!res.ok) throw new Error()
+      setDone(true)
+      onRated(order.id, rating)
+      toast.success('Obrigado pela avaliação!')
+    } catch {
+      toast.error('Erro ao enviar avaliação')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="border-t border-gray-100 pt-4 space-y-3">
+      <p className="text-sm font-semibold text-gray-800">Como foi seu pedido?</p>
+      <StarRating value={rating} onChange={setRating} />
+      {rating > 0 && (
+        <>
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Deixe um comentário (opcional)..."
+            rows={2}
+            className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-orange-400/30"
+          />
+          <Button
+            onClick={submit}
+            disabled={submitting}
+            className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-xl h-10 text-sm"
+          >
+            {submitting ? 'Enviando...' : 'Enviar avaliação'}
+          </Button>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function AcompanharClient({ restaurantId, whatsappNumber }: Props) {
   const router = useRouter()
   const { phone, setPhone, clearPhone } = useCustomerStore()
@@ -49,24 +142,27 @@ export default function AcompanharClient({ restaurantId, whatsappNumber }: Props
 
   async function fetchOrders(p: string) {
     setLoading(true)
-    // Normaliza: mantém apenas dígitos — previne injeção no filtro PostgREST
     const digits = p.replace(/\D/g, '')
-    // Mínimo 10 dígitos (DDD + número) para números brasileiros
     if (digits.length < 10 || digits.length > 15) {
       setOrders([])
       setLoading(false)
       return
     }
-    // Usa .in() com valores sanitizados em vez de .or() com interpolação livre
     const phones = Array.from(new Set([p.trim(), digits]))
+    // Busca pedidos ativos + pedidos entregues nos últimos 2 dias (para avaliação)
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
     const { data } = await supabase
       .from('orders')
       .select('*, items:order_items(*)')
       .in('customer_phone', phones)
-      .in('status', ['recebido', 'preparando', 'pronto', 'saindo'])
+      .or(`status.in.(recebido,preparando,pronto,saindo),and(status.eq.entregue,created_at.gte.${twoDaysAgo})`)
       .order('created_at', { ascending: false })
     setOrders(data ?? [])
     setLoading(false)
+  }
+
+  function handleRated(orderId: string, rating: number) {
+    setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, rating } : o))
   }
 
   async function upsertSession(p: string) {
@@ -213,17 +309,18 @@ export default function AcompanharClient({ restaurantId, whatsappNumber }: Props
         <div className="px-4 pt-4 space-y-4">
           {orders.map((order) => {
             const msg = STATUS_MESSAGE[order.status]
+            const isDelivered = order.status === 'entregue'
             return (
               <div key={order.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
                 {/* Cabeçalho com gradiente */}
-                <div className="bg-gradient-to-br from-orange-500 to-orange-600 p-4 text-white">
+                <div className={`p-4 text-white ${isDelivered ? 'bg-gray-700' : 'bg-gradient-to-br from-orange-500 to-orange-600'}`}>
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-[11px] uppercase tracking-wider font-bold text-white/80">Pedido</p>
                       <p className="text-xl font-bold leading-tight">#{order.order_number}</p>
                     </div>
                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-white/20 backdrop-blur-sm rounded-full">
-                      <span className="h-1.5 w-1.5 bg-white rounded-full animate-pulse" />
+                      <span className={`h-1.5 w-1.5 rounded-full ${isDelivered ? 'bg-white' : 'bg-white animate-pulse'}`} />
                       <span className="text-[11px] font-bold">{getOrderStatusLabel(order.status)}</span>
                     </div>
                   </div>
@@ -272,8 +369,13 @@ export default function AcompanharClient({ restaurantId, whatsappNumber }: Props
                     </div>
                   </div>
 
+                  {/* Avaliação (só para entregues) */}
+                  {isDelivered && (
+                    <RatingWidget order={order} onRated={handleRated} />
+                  )}
+
                   {/* Botão WhatsApp */}
-                  {whatsappNumber && (
+                  {whatsappNumber && !isDelivered && (
                     <a
                       href={buildWhatsAppLink(whatsappNumber, order.order_number)}
                       target="_blank"

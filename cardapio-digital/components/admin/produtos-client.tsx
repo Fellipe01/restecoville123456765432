@@ -21,7 +21,7 @@ interface Props {
   restaurantId: string
 }
 
-const emptyForm = { name: '', description: '', base_price: '', category_id: '', image_url: '', type: 'simple' as 'simple' | 'combo' }
+const emptyForm = { name: '', description: '', base_price: '', category_id: '', image_url: '', type: 'simple' as 'simple' | 'combo', available_from: '', available_until: '' }
 
 export default function ProdutosClient({ initialProducts, categories, restaurantId }: Props) {
   const [products, setProducts] = useState<Product[]>(initialProducts)
@@ -63,6 +63,8 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
       category_id: p.category_id,
       image_url: p.image_url ?? '',
       type: p.type ?? 'simple',
+      available_from: (p as any).available_from ?? '',
+      available_until: (p as any).available_until ?? '',
     })
     setOpen(true)
   }
@@ -77,6 +79,8 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
       category_id: form.category_id,
       image_url: form.image_url || null,
       type: form.type,
+      available_from: form.available_from || null,
+      available_until: form.available_until || null,
     }
 
     if (editing) {
@@ -596,6 +600,26 @@ export default function ProdutosClient({ initialProducts, categories, restaurant
             <div>
               <Label>Preço (R$)</Label>
               <Input type="number" step="0.01" value={form.base_price} onChange={(e) => setForm((f) => ({ ...f, base_price: e.target.value }))} className="mt-1" />
+            </div>
+            <div>
+              <Label>Disponível no horário <span className="text-gray-400 font-normal">(opcional)</span></Label>
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="time"
+                  value={form.available_from}
+                  onChange={(e) => setForm((f) => ({ ...f, available_from: e.target.value }))}
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400/30 outline-none"
+                  placeholder="Das"
+                />
+                <span className="text-gray-400 text-sm shrink-0">até</span>
+                <input
+                  type="time"
+                  value={form.available_until}
+                  onChange={(e) => setForm((f) => ({ ...f, available_until: e.target.value }))}
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400/30 outline-none"
+                />
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Deixe em branco para disponibilidade o dia todo.</p>
             </div>
             <div>
               <Label>Imagem do produto</Label>

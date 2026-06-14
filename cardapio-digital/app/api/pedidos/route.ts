@@ -6,6 +6,7 @@ import { checkRateLimitAsync } from '@/lib/rate-limit'
 import { haversineKm, calcDeliveryFee } from '@/lib/utils'
 import { computeIsOpen } from '@/lib/business-hours'
 import { getRestaurantId } from '@/lib/restaurant'
+import { sendPushToRestaurant } from '@/lib/web-push'
 import type { BusinessHours } from '@/types'
 
 const itemSchema = z.object({
@@ -267,6 +268,12 @@ export async function POST(request: NextRequest) {
           .select('*, items:order_items(*)')
           .eq('id', rpcResult.id)
           .single()
+        sendPushToRestaurant(restaurant.id, {
+          title: `🛎 Novo pedido #${order?.order_number}!`,
+          body: `${data.customer_name} · ${data.type === 'delivery' ? 'Delivery' : 'Balcão'} · R$ ${serverTotal.toFixed(2).replace('.', ',')}`,
+          tag: 'new-order',
+          url: '/admin/pedidos',
+        }).catch(() => {})
         return NextResponse.json({ order })
       }
     }
@@ -349,6 +356,13 @@ export async function POST(request: NextRequest) {
         .eq('id', couponRecord.id)
         .eq('uses_count', couponRecord.uses_count)
     }
+
+    sendPushToRestaurant(restaurant.id, {
+      title: `🛎 Novo pedido #${order.order_number}!`,
+      body: `${data.customer_name} · ${data.type === 'delivery' ? 'Delivery' : 'Balcão'} · R$ ${serverTotal.toFixed(2).replace('.', ',')}`,
+      tag: 'new-order',
+      url: '/admin/pedidos',
+    }).catch(() => {})
 
     return NextResponse.json({ order })
   } catch (error) {

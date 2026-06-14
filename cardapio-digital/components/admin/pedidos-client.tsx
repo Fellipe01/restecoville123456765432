@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import Link from 'next/link'
-import { Clock, Printer, Calendar } from 'lucide-react'
+import { Clock, Printer, Calendar, Star } from 'lucide-react'
 import { playNewOrderSound } from '@/lib/notification-sound'
 import { printCozinha, printEntrega } from '@/lib/print-receipt'
 
@@ -240,6 +240,18 @@ export default function PedidosClient({ initialOrders }: Props) {
                         <p className="text-xs text-center text-purple-600 font-semibold bg-purple-50 rounded py-1">
                           🛵 Aguardando entregador
                         </p>
+                      )}
+
+                      {/* Avaliação */}
+                      {order.rating && (
+                        <div className="flex items-center gap-0.5">
+                          {[1,2,3,4,5].map((s) => (
+                            <Star key={s} className="h-3.5 w-3.5" fill={(order.rating ?? 0) >= s ? '#f97316' : 'none'} stroke={(order.rating ?? 0) >= s ? '#f97316' : '#d1d5db'} strokeWidth={1.5} />
+                          ))}
+                          {order.rating_comment && (
+                            <span className="text-[10px] text-gray-400 ml-1 truncate max-w-[100px]">"{order.rating_comment}"</span>
+                          )}
+                        </div>
                       )}
 
                       {/* Valor + ações */}

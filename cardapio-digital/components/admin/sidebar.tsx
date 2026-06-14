@@ -6,15 +6,17 @@ import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, ClipboardList, ChefHat, UtensilsCrossed,
-  Settings, LogOut, Menu, X, Bike
+  Settings, LogOut, Menu, X, Bike, BarChart2
 } from 'lucide-react'
 import { useState } from 'react'
+import PushRegistrar from '@/components/admin/push-registrar'
 
 const navItems = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/pedidos', label: 'Pedidos', icon: ClipboardList },
   { href: '/admin/cozinha', label: 'Cozinha', icon: ChefHat },
   { href: '/admin/cardapio/categorias', label: 'Cardápio', icon: UtensilsCrossed },
+  { href: '/admin/relatorio/produtos', label: 'Relatório', icon: BarChart2 },
   { href: '/admin/configuracoes/restaurante', label: 'Configurações', icon: Settings },
   { href: '/admin/configuracoes/entregadores', label: 'Entregadores', icon: Bike },
 ]
@@ -70,6 +72,10 @@ export default function AdminSidebar() {
             )
           })}
         </nav>
+
+        <div className="px-3 pb-3">
+          <PushRegistrar />
+        </div>
 
         <div className="px-2 py-4 border-t border-gray-700">
           <button

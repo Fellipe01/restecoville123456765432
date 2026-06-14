@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
 }
 
 const ALLOWED_PRODUCT_FIELDS = new Set([
-  'name', 'description', 'base_price', 'is_available', 'sort_order', 'category_id', 'image_url', 'type',
+  'name', 'description', 'base_price', 'is_available', 'sort_order', 'category_id', 'image_url', 'type', 'available_from', 'available_until',
 ])
 
 export async function PATCH(request: NextRequest) {
