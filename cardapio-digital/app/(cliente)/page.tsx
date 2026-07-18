@@ -22,7 +22,7 @@ export default async function HomePage() {
     supabase.from('restaurants').select('*').eq('id', restaurantId).single(),
     supabase.from('categories').select('*').eq('restaurant_id', restaurantId).eq('is_active', true).order('sort_order'),
     supabase.from('products').select('*, category:categories(name)').eq('restaurant_id', restaurantId).order('sort_order'),
-    supabase.from('orders').select('*', { count: 'exact', head: true }).eq('restaurant_id', restaurantId).in('status', ['recebido', 'preparando']),
+    supabase.from('orders').select('*', { count: 'estimated', head: true }).eq('restaurant_id', restaurantId).in('status', ['recebido', 'preparando']),
     supabase.from('business_hours').select('*').eq('restaurant_id', restaurantId).order('day_of_week'),
   ])
 
