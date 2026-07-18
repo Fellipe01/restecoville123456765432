@@ -38,7 +38,7 @@ async function resolveRestaurantId(hostname: string): Promise<string | null> {
   return restaurants?.[0]?.id ?? null
 }
 
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const isAdminRoute = pathname.startsWith('/admin')
   const isLoginPage = pathname === '/admin/login'
