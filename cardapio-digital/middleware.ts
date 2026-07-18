@@ -1,4 +1,3 @@
-import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 async function resolveRestaurantId(hostname: string): Promise<string | null> {
@@ -59,6 +58,10 @@ export async function middleware(request: NextRequest) {
 
   let supabaseResponse = NextResponse.next({ request })
 
+  // Import dinâmico: carregado só quando a rota é /admin, pra rotas públicas (a
+  // maioria do tráfego) nunca tocarem nesse módulo.
+  const { createServerClient } = await import('@supabase/ssr')
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -93,8 +96,4 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
-  // @supabase/ssr usa algo (provavelmente __dirname via alguma dependência) que não
-  // existe no Edge Runtime, o runtime padrão do middleware.ts. Precisa do Node.js
-  // runtime — igual o proxy.ts da v16 sempre usava (lá isso nem era configurável).
-  runtime: 'nodejs',
 }
