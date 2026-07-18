@@ -44,8 +44,10 @@ export async function proxy(request: NextRequest) {
   const isLoginPage = pathname === '/admin/login'
 
   if (!isAdminRoute) {
+    const start = Date.now()
     const hostname = (request.headers.get('host') ?? 'localhost').split(':')[0]
     const restaurantId = await resolveRestaurantId(hostname)
+    console.log(`[TIMING] proxy resolveRestaurantId (${pathname}): ${Date.now() - start}ms — found: ${!!restaurantId}`)
     const requestHeaders = new Headers(request.headers)
 
     if (restaurantId) requestHeaders.set('x-restaurant-id', restaurantId)

@@ -7,9 +7,17 @@ import { computeIsOpen } from '@/lib/business-hours'
 import { getRestaurantId } from '@/lib/restaurant'
 import { notFound } from 'next/navigation'
 
+async function timed<T>(label: string, p: PromiseLike<T>): Promise<T> {
+  const start = Date.now()
+  const result = await p
+  console.log(`[TIMING] ${label}: ${Date.now() - start}ms`)
+  return result
+}
+
 export default async function HomePage() {
-  const supabase = await createClient()
-  const restaurantId = await getRestaurantId()
+  const pageStart = Date.now()
+  const supabase = await timed('createClient', createClient())
+  const restaurantId = await timed('getRestaurantId', getRestaurantId())
   if (!restaurantId) notFound()
 
   const [
@@ -18,13 +26,14 @@ export default async function HomePage() {
     { data: products },
     { count: activeOrdersCount },
     { data: businessHours },
-  ] = await Promise.all([
-    supabase.from('restaurants').select('*').eq('id', restaurantId).single(),
-    supabase.from('categories').select('*').eq('restaurant_id', restaurantId).eq('is_active', true).order('sort_order'),
-    supabase.from('products').select('*, category:categories(name)').eq('restaurant_id', restaurantId).order('sort_order'),
-    supabase.from('orders').select('*', { count: 'estimated', head: true }).eq('restaurant_id', restaurantId).in('status', ['recebido', 'preparando']),
-    supabase.from('business_hours').select('*').eq('restaurant_id', restaurantId).order('day_of_week'),
-  ])
+  ] = await timed('Promise.all(5 queries)', Promise.all([
+    timed('restaurants', supabase.from('restaurants').select('*').eq('id', restaurantId).single()),
+    timed('categories', supabase.from('categories').select('*').eq('restaurant_id', restaurantId).eq('is_active', true).order('sort_order')),
+    timed('products', supabase.from('products').select('*, category:categories(name)').eq('restaurant_id', restaurantId).order('sort_order')),
+    timed('activeOrdersCount', supabase.from('orders').select('*', { count: 'estimated', head: true }).eq('restaurant_id', restaurantId).in('status', ['recebido', 'preparando'])),
+    timed('businessHours', supabase.from('business_hours').select('*').eq('restaurant_id', restaurantId).order('day_of_week')),
+  ]))
+  console.log(`[TIMING] TOTAL until data ready: ${Date.now() - pageStart}ms`)
 
   // Sobrescreve is_open com cálculo baseado nos horários cadastrados
   const computed = computeIsOpen((businessHours ?? []) as BusinessHours[])
