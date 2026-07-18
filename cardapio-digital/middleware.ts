@@ -58,8 +58,6 @@ export async function middleware(request: NextRequest) {
 
   let supabaseResponse = NextResponse.next({ request })
 
-  // Import dinâmico: carregado só quando a rota é /admin, pra rotas públicas (a
-  // maioria do tráfego) nunca tocarem nesse módulo.
   const { createServerClient } = await import('@supabase/ssr')
 
   const supabase = createServerClient(
