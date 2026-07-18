@@ -3,12 +3,63 @@ import { cache } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { BusinessHours, Restaurant } from '@/types'
 
-// Páginas públicas (cliente): restaurant ID vem do header x-restaurant-id
-// setado pelo middleware com base no hostname da requisição.
-export async function getRestaurantId(): Promise<string | null> {
-  const h = await headers()
-  return h.get('x-restaurant-id')
+// Resolve qual restaurante corresponde ao hostname da requisição.
+// Prioridade:
+//  1. Env var NEXT_PUBLIC_RESTAURANT_ID (modo single-tenant — sem latência extra)
+//  2. Lookup por custom_domain ou slug no banco via REST API
+//  3. Fallback pra localhost / domínios de preview — retorna o primeiro restaurante
+async function resolveRestaurantIdByHostname(hostname: string): Promise<string | null> {
+  const staticId = process.env.NEXT_PUBLIC_RESTAURANT_ID
+  if (staticId) return staticId
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!url || !key) return null
+
+  const requestHeaders = { apikey: key, Authorization: `Bearer ${key}` }
+  const encodedHostname = encodeURIComponent(hostname)
+  const response = await fetch(
+    `${url}/rest/v1/restaurants?or=(custom_domain.eq.${encodedHostname},slug.eq.${encodedHostname})&select=id&limit=1`,
+    { headers: requestHeaders, cache: 'no-store' }
+  )
+
+  if (response.ok) {
+    const restaurants = await response.json()
+    if (restaurants?.[0]?.id) return restaurants[0].id
+  }
+
+  const isFallbackHost =
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname.endsWith('.vercel.app') ||
+    hostname.endsWith('.local')
+
+  if (!isFallbackHost) return null
+
+  const fallback = await fetch(`${url}/rest/v1/restaurants?select=id&limit=1`, {
+    headers: requestHeaders,
+    cache: 'no-store',
+  })
+  if (!fallback.ok) return null
+
+  const restaurants = await fallback.json()
+  return restaurants?.[0]?.id ?? null
 }
+
+// Páginas e API routes públicas (cliente): resolve o restaurant ID pelo hostname
+// da requisição (Host header). cache() garante que, dentro da mesma requisição,
+// isso só bate no Supabase uma vez mesmo chamado de vários lugares.
+//
+// Antes isso era resolvido no middleware.ts e propagado via header x-restaurant-id.
+// Mudou pra resolução direta aqui porque o Edge Middleware está com um bug de
+// bundling nessa versão do Next.js/Vercel (ReferenceError: __dirname is not
+// defined mesmo num middleware vazio, sem nenhuma lógica) — resolver direto no
+// Server Component evita depender do middleware por completo.
+export const getRestaurantId = cache(async function getRestaurantId(): Promise<string | null> {
+  const h = await headers()
+  const hostname = (h.get('host') ?? 'localhost').split(':')[0]
+  return resolveRestaurantIdByHostname(hostname)
+})
 
 // Layout e page do grupo (cliente) precisam ambos do restaurante e dos horários
 // de funcionamento. cache() garante que, dentro da mesma requisição, essa busca
